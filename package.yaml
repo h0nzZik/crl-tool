@@ -1,0 +1,10 @@
+name: crl-tool
+version: 0.0.1
+
+executables:
+  hello-world-exe:
+    main: Main.hs
+    source-dirs: src
+
+dependencies:
+  - base >= 4.0.0

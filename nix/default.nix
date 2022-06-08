@@ -12,15 +12,41 @@ let
   k-haskell-backend-project = (import sources."haskell-backend" {});
 
   src = gitignoreSource ./..;
+
+  # see https://github.com/tweag/haskell-stack-nix-example/blob/main/shell.nix
+  # Wrap Stack to configure Nix integration and target the correct Stack-Nix file
+  #
+  # - nix: Enable Nix support
+  # - no-nix-pure: Pass environment variables, like `NIX_PATH`
+  # - nix-shell-file: Specify the Nix file to use (otherwise it uses `shell.nix` by default)
+  stack-wrapped = pkgs.symlinkJoin {
+    name = "stack";
+    paths = [ pkgs.stack ];
+    buildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      wrapProgram $out/bin/stack \
+        --add-flags "\
+          --nix \
+          --no-nix-pure \
+          --nix-shell-file=nix/stack-integration.nix \
+        "
+    '';
+  };
+
 in
 {
   inherit pkgs src;
+
+  #inherit (pkgs) cabal-install ghcid stack;
 
   # provided by shell.nix
   devTools = {
     inherit (pkgs) niv;
     inherit (pre-commit-hooks) pre-commit;
     inherit (k-haskell-backend-project) kore;
+    inherit (pkgs.haskellPackages) ghc;
+    inherit stack-wrapped;
+#    inherit (pkgs) nix;
   };
 
   # to be built by github actions

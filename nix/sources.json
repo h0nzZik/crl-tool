@@ -17,10 +17,10 @@
         "homepage": "",
         "owner": "runtimeverification",
         "repo": "k",
-        "rev": "35d68a4936225218b22815e361de70a7fcefda26",
+        "rev": "bfc7792e8a6e70bbdcdef74f3ef14d4ff84a82ed",
         "sha256": "1fpvsxaic0q93hnn2954pird2cwrfc3w7n65p63rw1mgjp31j0sa",
         "type": "tarball",
-        "url": "https://github.com/runtimeverification/k/archive/35d68a4936225218b22815e361de70a7fcefda26.tar.gz",
+        "url": "https://github.com/runtimeverification/k/archive/bfc7792e8a6e70bbdcdef74f3ef14d4ff84a82ed.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
