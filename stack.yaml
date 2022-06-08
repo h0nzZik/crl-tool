@@ -3,8 +3,8 @@ compiler: ghc-8.8.4
 
 nix:
   enable: true
-  pure: false
-  shell-file: shell.nix
+#  pure: false
+#  shell-file: shell.nix
 
 packages:
   - .

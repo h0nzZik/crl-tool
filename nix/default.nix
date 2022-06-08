@@ -33,6 +33,13 @@ let
     '';
   };
 
+  #kore-libs = pkgs.symlinkJoin {
+  #  name = "kore-libs";
+  #  paths = pkgs.lib.attrValues k-haskell-backend-project.project.kore.components.sublibs;
+  #};
+
+  kore-libs = k-haskell-backend-project.project.kore.components.library ;
+
 in
 {
   inherit pkgs src;
@@ -44,9 +51,9 @@ in
     inherit (pkgs) niv;
     inherit (pre-commit-hooks) pre-commit;
     inherit (k-haskell-backend-project) kore;
-    inherit (pkgs.haskellPackages) ghc;
+#    inherit (pkgs.haskellPackages) ghc;
     inherit stack-wrapped;
-#    inherit (pkgs) nix;
+    inherit kore-libs;
   };
 
   # to be built by github actions

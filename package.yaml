@@ -8,3 +8,4 @@ executables:
 
 dependencies:
   - base >= 4.0.0
+#  - kore
