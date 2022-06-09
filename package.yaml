@@ -7,5 +7,5 @@ executables:
     source-dirs: src
 
 dependencies:
-  - base >= 4.0.0
-#  - kore
+  - base
+  - kore

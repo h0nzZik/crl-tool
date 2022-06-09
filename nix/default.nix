@@ -50,7 +50,7 @@ in
   devTools = {
     inherit (pkgs) niv;
     inherit (pre-commit-hooks) pre-commit;
-    inherit (k-haskell-backend-project) kore;
+#    inherit (k-haskell-backend-project) kore;
 #    inherit (pkgs.haskellPackages) ghc;
     inherit stack-wrapped;
     inherit kore-libs;

@@ -14,5 +14,6 @@ pkgs.haskell.lib.buildStackProject {
   # System dependencies needed at compilation time
   buildInputs = [
     pkgs.zlib
-  ] ++ [project.devTools.kore-libs] ;
+  ];
+# ++ [project.devTools.kore-libs] ;
 }

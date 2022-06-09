@@ -17,10 +17,10 @@
         "homepage": "",
         "owner": "runtimeverification",
         "repo": "k",
-        "rev": "bfc7792e8a6e70bbdcdef74f3ef14d4ff84a82ed",
-        "sha256": "1fpvsxaic0q93hnn2954pird2cwrfc3w7n65p63rw1mgjp31j0sa",
+        "rev": "5b9be364b70feef9c6f265e08a9c52b05c684350",
+        "sha256": "1870qqas8ll2krrybm8b7jfd4vc313rgh7dvl4d7jpd5zg6jvka7",
         "type": "tarball",
-        "url": "https://github.com/runtimeverification/k/archive/bfc7792e8a6e70bbdcdef74f3ef14d4ff84a82ed.tar.gz",
+        "url": "https://github.com/runtimeverification/k/archive/5b9be364b70feef9c6f265e08a9c52b05c684350.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
@@ -36,15 +36,15 @@
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "nixpkgs": {
-        "branch": "release-20.03",
+        "branch": "release-22.05",
         "description": "Nix Packages collection",
         "homepage": "",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "345ff18c99af958afdbd57f077aae9af4000e864",
-        "sha256": "1igwp71cyd8s6j1r80xh895jjfsdry4y67mhr7kmjxc3hbc3axly",
+        "rev": "c3f4ada930d03811cdecdd9c725bf5988b9da6c1",
+        "sha256": "15ssk8grqilzcbya2zmng9hjif1jxr3nm9236h7n4xkd04npjl5m",
         "type": "tarball",
-        "url": "https://github.com/NixOS/nixpkgs/archive/345ff18c99af958afdbd57f077aae9af4000e864.tar.gz",
+        "url": "https://github.com/NixOS/nixpkgs/archive/c3f4ada930d03811cdecdd9c725bf5988b9da6c1.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "pre-commit-hooks.nix": {
