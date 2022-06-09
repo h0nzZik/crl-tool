@@ -8,3 +8,6 @@ nix:
 
 packages:
   - .
+
+#extra-deps:
+#  - kore-0.60.0.0

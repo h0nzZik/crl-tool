@@ -1,5 +1,7 @@
 let
+
   sources = import ./sources.nix;
+  project = (import ./default.nix) { inherit sources; };
   pkgs = import sources.nixpkgs { };
 in
 
@@ -12,5 +14,5 @@ pkgs.haskell.lib.buildStackProject {
   # System dependencies needed at compilation time
   buildInputs = [
     pkgs.zlib
-  ];
+  ] ++ [project.devTools.kore-libs] ;
 }
