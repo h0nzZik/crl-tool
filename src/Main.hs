@@ -1,10 +1,21 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+
 import Kore.Parser
 import Kore.Unparser
 import Kore.Validate.DefinitionVerifier
+import Kore.Builtin qualified as Builtin
+import Kore.Verified qualified as Verified
+import Kore.Syntax.Module
+import Kore.IndexedModule.IndexedModule
+import Kore.Attribute.Symbol (Symbol)
 
 import System.Environment (getArgs, getProgName)
 import Data.Text ( Text )
+import Data.Map.Strict (
+    Map,
+ )
+import Data.Map.Strict qualified as Map
 import Pretty (
     Doc,
     hPutDoc,
@@ -21,8 +32,8 @@ import System.IO (
 transformDefinition :: ParsedDefinition -> ParsedDefinition
 transformDefinition d = d
 
-transformDefinitionFile :: String -> String -> IO ()
-transformDefinitionFile inputFileName outputFileName = do
+withDefinition :: String -> (ParsedDefinition -> IO ()) -> IO ()
+withDefinition inputFileName action = do
     contents <- Data.Text.IO.readFile inputFileName
     let esParsedDefinition = Kore.Parser.parseKoreDefinition inputFileName contents
     case esParsedDefinition of
@@ -30,11 +41,27 @@ transformDefinitionFile inputFileName outputFileName = do
             -> do
                 Prelude.putStrLn $ "cannot parse: " ++ s
         Right parsedDefinition
-            -> do
-                let transformed = transformDefinition parsedDefinition
-                let unparsedDefinition = unparse transformed
-                System.IO.withFile outputFileName WriteMode $ \outputFileHandle ->
-                    Pretty.hPutDoc outputFileHandle unparsedDefinition
+            -> action parsedDefinition
+
+withVerifiedDefinition :: String -> (ParsedDefinition -> (Map.Map ModuleName (VerifiedModule Kore.Attribute.Symbol.Symbol)) -> IO ()) -> IO ()
+withVerifiedDefinition inputFileName action =
+    withDefinition inputFileName $ \parsedDefinition ->
+        do
+            let result = verifyAndIndexDefinition Builtin.koreVerifiers parsedDefinition
+            case result of
+                Left err -> 
+                    Prelude.putStrLn $ "verification of kore failed"
+                Right mmap ->
+                    action parsedDefinition mmap
+
+transformDefinitionFile :: String -> String -> IO ()
+transformDefinitionFile inputFileName outputFileName =
+    withDefinition inputFileName $ \parsedDefinition ->
+        do
+            let transformed = transformDefinition parsedDefinition
+            let unparsedDefinition = unparse transformed
+            System.IO.withFile outputFileName WriteMode $ \outputFileHandle ->
+                Pretty.hPutDoc outputFileHandle unparsedDefinition
 
 
 usage :: IO ()
@@ -51,6 +78,15 @@ transform args =
                 transformDefinitionFile inputFileName outputFileName
 
 
+validate :: [String] -> IO ()
+validate args =
+    case args of
+        [inputFileName]
+            -> withVerifiedDefinition inputFileName $ \parsedDefinition verifiedDefinition ->
+                do
+                    Prelude.putStrLn $ "Kore file verified"
+
+
 main :: IO ()
 main = do
     args <- System.Environment.getArgs
@@ -58,5 +94,6 @@ main = do
         "transform":args
             -> transform args
         "validate":args
-            -> Prelude.putStrLn $ "NotImplemented"
-        _ -> usage
+            -> validate args
+        _
+            -> usage

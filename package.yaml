@@ -10,3 +10,4 @@ dependencies:
   - base
   - kore
   - text
+  - containers
