@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 import Kore.Parser
 import Kore.Unparser
+import Kore.Validate.DefinitionVerifier
 
 import System.Environment (getArgs, getProgName)
 import Data.Text ( Text )
@@ -36,22 +37,26 @@ transformDefinitionFile inputFileName outputFileName = do
                     Pretty.hPutDoc outputFileHandle unparsedDefinition
 
 
+usage :: IO ()
+usage = do
+    name <- System.Environment.getProgName
+    Prelude.putStrLn $ "Usage: " ++ name ++ " transform inputFileName outputFileName"
+
+transform :: [String] -> IO ()
+transform args = 
+    case args of
+        [inputFileName, outputFileName] 
+            -> do
+                Prelude.putStrLn $ "input: " ++ inputFileName ++ ", output: " ++ outputFileName
+                transformDefinitionFile inputFileName outputFileName
+
+
 main :: IO ()
 main = do
-    Prelude.putStrLn "Hello, World!" ;
     args <- System.Environment.getArgs
     case args of
-        [inputFileName, outputFileName]
-          -> do
-              Prelude.putStrLn $ "input: " ++ inputFileName ++ ", output: " ++ outputFileName
-              transformDefinitionFile inputFileName outputFileName
-        _ -> do
-            name <- System.Environment.getProgName
-            Prelude.putStrLn $ "Usage: " ++ name ++ " inputFileName outputFileName"
-{-
-    (fileName:_) <- getArgs
-    contents <- Data.Text.IO.readFile fileName
-    parsedDefinition <- Kore.Parser.parseKoreDefinition fileName contents
-    print (parsedDefinition)
-
--}
+        "transform":args
+            -> transform args
+        "validate":args
+            -> Prelude.putStrLn $ "NotImplemented"
+        _ -> usage
