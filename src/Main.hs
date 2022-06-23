@@ -9,9 +9,13 @@ import Kore.Verified qualified as Verified
 import Kore.Syntax.Module
 import Kore.IndexedModule.IndexedModule
 import Kore.Attribute.Symbol (Symbol)
+import Kore.Attribute.Attributes
+import Kore.Syntax.Application (SymbolOrAlias (..))
+import Kore.Syntax.Definition (definitionAttributes)
+import Kore.Syntax.Id (Id(..), AstLocation(..))
 
 import System.Environment (getArgs, getProgName)
-import Data.Text ( Text )
+import Data.Text ( Text, pack )
 import Data.Map.Strict (
     Map,
  )
@@ -31,6 +35,12 @@ import System.IO (
 
 transformDefinition :: ParsedDefinition -> ParsedDefinition
 transformDefinition d = d
+
+getCfgSort :: ParsedDefinition -> AttributePattern
+getCfgSort d =
+    let da = getAttributes (definitionAttributes d) in
+        attributePattern (SymbolOrAlias (Id (Data.Text.pack "topCellInitializer") AstLocationNone) []) da
+
 
 withDefinition :: String -> (ParsedDefinition -> IO ()) -> IO ()
 withDefinition inputFileName action = do
@@ -64,6 +74,17 @@ transformDefinitionFile inputFileName outputFileName =
                 Pretty.hPutDoc outputFileHandle unparsedDefinition
 
 
+printCfgSort :: [String] -> IO ()
+printCfgSort args =
+    case args of
+        [inputFileName]
+            ->
+                withDefinition inputFileName $ \parsedDefinition ->
+                    do
+                        let cfgSort = getCfgSort parsedDefinition
+                        let unparsed = unparse cfgSort
+                        Pretty.putDoc $ (unparsed)
+
 usage :: IO ()
 usage = do
     name <- System.Environment.getProgName
@@ -95,5 +116,7 @@ main = do
             -> transform args
         "validate":args
             -> validate args
+        "print-cfg-sort":args
+            -> printCfgSort args
         _
             -> usage
