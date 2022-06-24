@@ -10,7 +10,9 @@ import Kore.Syntax.Module
 import Kore.IndexedModule.IndexedModule
 import Kore.Attribute.Symbol (Symbol)
 import Kore.Attribute.Attributes
-import Kore.Syntax.Application (SymbolOrAlias (..))
+import Control.Comonad.Trans.Cofree (Cofree, unwrap)
+import Kore.Syntax.Pattern (Pattern(..))
+import Kore.Syntax.Application (Application (..), SymbolOrAlias (..))
 import Kore.Syntax.Definition (definitionAttributes)
 import Kore.Syntax.Id (Id(..), AstLocation(..))
 
@@ -36,10 +38,11 @@ import System.IO (
 transformDefinition :: ParsedDefinition -> ParsedDefinition
 transformDefinition d = d
 
-getCfgSort :: ParsedDefinition -> AttributePattern
+{- getCfgSort :: ParsedDefinition -> AttributePattern -}
 getCfgSort d =
     let da = getAttributes (definitionAttributes d) in
-        attributePattern (SymbolOrAlias (Id (Data.Text.pack "topCellInitializer") AstLocationNone) []) da
+        let ap = attributePattern (SymbolOrAlias (Id (Data.Text.pack "topCellInitializer") AstLocationNone) []) da in
+            ap
 
 
 withDefinition :: String -> (ParsedDefinition -> IO ()) -> IO ()
