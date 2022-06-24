@@ -24,6 +24,7 @@ import System.Console.Haskeline (
     defaultSettings,
     outputStrLn,
     runInputT,
+    withRunInBase,
  )
 
 import System.Environment (getArgs, getProgName)
@@ -90,6 +91,13 @@ withVerifiedDefinition inputFileName action =
                 Right mmap ->
                     action parsedDefinition mmap
 
+withModule :: String -> ModuleName -> (ParsedDefinition -> VerifiedModule Kore.Attribute.Symbol.Symbol -> IO ()) -> IO ()
+withModule inputFileName moduleName action =
+    withVerifiedDefinition inputFileName $ \parsedDefinition verifiedDefinition ->
+        case Map.lookup moduleName verifiedDefinition of
+            Just verifiedModule -> action parsedDefinition verifiedModule
+            Nothing -> return ()
+
 transformDefinitionFile :: String -> String -> IO ()
 transformDefinitionFile inputFileName outputFileName =
     withDefinition inputFileName $ \parsedDefinition ->
@@ -134,16 +142,26 @@ validate args =
                     Prelude.putStrLn $ "Kore file verified"
 
 repl :: [String] -> IO ()
-repl args = runInputT defaultSettings loop
-   where
-       loop :: InputT IO ()
-       loop = do
-           minput <- getInputLine "% "
-           case minput of
-               Nothing -> return ()
-               Just "quit" -> return ()
-               Just input -> do outputStrLn $ "Input was: " ++ input
-                                loop
+repl [inputFileName,inputModuleName] =
+    withModule inputFileName (ModuleName (pack inputModuleName)) $ \parsedDefinition verifiedModule ->
+        runInputT defaultSettings (loop verifiedModule)
+    where
+        loop :: VerifiedModule Kore.Attribute.Symbol.Symbol -> InputT IO ()
+        loop verifiedModule = do
+            minput <- getInputLine "% "
+            case minput of
+                Nothing -> return ()
+                Just "print-module" -> do
+                    outputStrLn (take 500 (show verifiedModule))
+                    continue
+                Just "quit" -> return ()
+                Just input -> do
+                    outputStrLn $ "Input was: " ++ input
+                    continue
+             where continue = (loop verifiedModule)
+repl _ = do
+    name <- System.Environment.getProgName
+    Prelude.putStrLn $ "Usage: " ++ name ++ " repl inputFileName inputModuleName"
 
 main :: IO ()
 main = do
