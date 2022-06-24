@@ -12,11 +12,12 @@ import Kore.IndexedModule.IndexedModule
 import Kore.Attribute.Symbol (Symbol)
 import Kore.Attribute.Attributes
 import Kore.Internal.Predicate (Predicate, fromPredicate)
-import Control.Comonad.Trans.Cofree (Cofree, unwrap)
 import Kore.Syntax.Pattern (Pattern(..))
 import Kore.Syntax.Application (Application (..), SymbolOrAlias (..))
 import Kore.Syntax.Definition (definitionAttributes)
 import Kore.Syntax.Id (Id(..), AstLocation(..))
+
+import Control.Comonad.Trans.Cofree (Cofree, unwrap)
 
 import System.Console.Haskeline (
     InputT,
@@ -29,6 +30,12 @@ import System.Console.Haskeline (
 
 import System.Environment (getArgs, getProgName)
 import Data.Text ( Text, pack )
+
+import Data.String (
+    IsString (..),
+ )
+
+
 import Data.Map.Strict (
     Map,
  )
@@ -43,6 +50,19 @@ import Data.Text.IO
 import System.IO (
     IOMode (WriteMode),
     withFile,
+ )
+
+import Text.Megaparsec (
+    Parsec,
+    ShowErrorComponent (..),
+    customFailure,
+    eof,
+    many,
+    manyTill,
+    noneOf,
+    oneOf,
+    option,
+    try,
  )
 
 data CRLPattern variable annotation = CRLPattern
@@ -140,6 +160,17 @@ validate args =
             -> withVerifiedDefinition inputFileName $ \parsedDefinition verifiedDefinition ->
                 do
                     Prelude.putStrLn $ "Kore file verified"
+
+type Parser = Parsec ReplParseError Text
+
+newtype ReplParseError = ReplParseError {unReplParseError :: String}
+    deriving stock (Eq, Ord)
+
+instance IsString ReplParseError where
+    fromString = ReplParseError
+
+instance ShowErrorComponent ReplParseError where
+    showErrorComponent (ReplParseError string) = string
 
 repl :: [String] -> IO ()
 repl [inputFileName,inputModuleName] =
