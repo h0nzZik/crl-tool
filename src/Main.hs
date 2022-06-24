@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 import Kore.Parser
 import Kore.Unparser
@@ -10,11 +11,20 @@ import Kore.Syntax.Module
 import Kore.IndexedModule.IndexedModule
 import Kore.Attribute.Symbol (Symbol)
 import Kore.Attribute.Attributes
+import Kore.Internal.Predicate (Predicate, fromPredicate)
 import Control.Comonad.Trans.Cofree (Cofree, unwrap)
 import Kore.Syntax.Pattern (Pattern(..))
 import Kore.Syntax.Application (Application (..), SymbolOrAlias (..))
 import Kore.Syntax.Definition (definitionAttributes)
 import Kore.Syntax.Id (Id(..), AstLocation(..))
+
+import System.Console.Haskeline (
+    InputT,
+    getInputLine,
+    defaultSettings,
+    outputStrLn,
+    runInputT,
+ )
 
 import System.Environment (getArgs, getProgName)
 import Data.Text ( Text, pack )
@@ -34,6 +44,19 @@ import System.IO (
     withFile,
  )
 
+data CRLPattern variable annotation = CRLPattern
+    { crlplist :: [Pattern variable annotation]
+    , crlpside :: Predicate variable
+    }
+    deriving stock (Show)
+
+
+{-}
+instance (Unparse variable, Unparse annotation) => Unparse (CRLPattern variable annotation) where
+    unparse (CRLPattern l s) = unparse (fromPredicate s)
+-}
+crlArity :: CRLPattern variable annotation -> Int
+crlArity = length . crlplist
 
 transformDefinition :: ParsedDefinition -> ParsedDefinition
 transformDefinition d = d
@@ -110,6 +133,17 @@ validate args =
                 do
                     Prelude.putStrLn $ "Kore file verified"
 
+repl :: [String] -> IO ()
+repl args = runInputT defaultSettings loop
+   where
+       loop :: InputT IO ()
+       loop = do
+           minput <- getInputLine "% "
+           case minput of
+               Nothing -> return ()
+               Just "quit" -> return ()
+               Just input -> do outputStrLn $ "Input was: " ++ input
+                                loop
 
 main :: IO ()
 main = do
@@ -121,5 +155,7 @@ main = do
             -> validate args
         "print-cfg-sort":args
             -> printCfgSort args
+        "repl":args
+            -> repl args
         _
             -> usage

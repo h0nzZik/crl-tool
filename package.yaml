@@ -12,3 +12,4 @@ dependencies:
   - text
   - containers
   - free
+  - haskeline
