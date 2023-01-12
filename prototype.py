@@ -42,7 +42,11 @@ def verify(S, Phi, Psi, user_cutpoints, instantiated_cutpoints = [], flushed_cut
             continue
         # Assuming that a rewrite step happened
         for (b in branches_of(step_result)):
-            if verify(S, Phi.with_component(j, b), user_cutpoints=user_cutpoints, instantiated_cutpoints=[], flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints):
+            newPhi = Phi.with_component(j, b)
+            # prune inconsistent branches (since we have the toplevel constraint in Phi/newPhi)
+            if not consistent(newPhi):
+                continue
+            if verify(S, newPhi, user_cutpoints=user_cutpoints, instantiated_cutpoints=[], flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints):
                 return True
     
     return False
