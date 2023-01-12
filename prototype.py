@@ -36,7 +36,11 @@ def verify(S, Phi, Psi, user_cutpoints, instantiated_cutpoints = [], flushed_cut
             return True
     
     for j in range(0, arity_of(Phi)):
-        step_result = make_step(Phi.component[j])
+        step_result = make_step(Phi.component[j], steps=1)
+        # Cannot rewrite the j'th component anymore
+        if noRewriteStepHappened(step_result):
+            continue
+        # Assuming that a rewrite step happened
         for (b in branches_of(step_result)):
             if verify(S, Phi.with_component(j, b), user_cutpoints=user_cutpoints, instantiated_cutpoints=[], flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints):
                 return True
