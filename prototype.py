@@ -46,7 +46,8 @@ def verify(S, Phi, Psi, user_cutpoints, instantiated_cutpoints = [], flushed_cut
             # prune inconsistent branches (since we have the toplevel constraint in Phi/newPhi)
             if not consistent(newPhi):
                 continue
-            if verify(S, newPhi, user_cutpoints=user_cutpoints, instantiated_cutpoints=[], flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints):
-                return True
+            if verify(S, newPhi, user_cutpoints=user_cutpoints, instantiated_cutpoints=[], flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints) is False:
+                return False
+        return True
     
     return False
