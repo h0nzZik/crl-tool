@@ -3,6 +3,8 @@
 def eclp_check_impl(Phi, Psi):
     pass
 
+# Phi - CLP (constrained list pattern)
+# Psi - ECLP (existentially-quantified CLP)
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
 #   each one is a CLP. Note that they have not been proved to be valid;
 #   it is our task to verify them if we need to use them.
@@ -12,7 +14,7 @@ def verify(S, Phi, Psi, user_cutpoints, instantiated_cutpoints = [], flushed_cut
     if (subst := eclp_check_impl(Phi, Psi)) is not None:
         return True # build a proof object using subst, Conseq, Reflexivity
     
-    # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
+    # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
     flushed_cutpoints_with_subst = [(PhiC, eclp_check_impl(Phi, PhiC)) for PhiC in flushed_cutpoints]
     # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
     usable_flushed_cutpoints = [(PhiC, subst) for (PhiC, subst) in flushed_cutpoints_with_subst if subst is not None]
@@ -29,13 +31,15 @@ def verify(S, Phi, Psi, user_cutpoints, instantiated_cutpoints = [], flushed_cut
         # apply Circularity
         # We filter [user_cutpoints] to prevent infinite loops
         if verify(S, PhiC, Psi,
-            user_cutpoints=[x for x in user_cutpoints if check_impl(x, PhiC) is None],
+            #user_cutpoints=[x for x in user_cutpoints if check_impl(x, PhiC) is None],
+            user_cutpoints=[x for x in user_cutpoints if x != PhiC],
             instantiated_cutpoints=(instantiated_cutpoints + [PhiC]),
             flushed_cutpoints=flushed_cutpoints
         ):
             return True
     
     for j in range(0, arity_of(Phi)):
+        # TODO We can execute a component [j] until it partially matches the corresponding component of some circularity/axiom
         step_result = make_step(Phi.component[j], steps=1)
         # Cannot rewrite the j'th component anymore
         if noRewriteStepHappened(step_result):
@@ -46,7 +50,10 @@ def verify(S, Phi, Psi, user_cutpoints, instantiated_cutpoints = [], flushed_cut
             # prune inconsistent branches (since we have the toplevel constraint in Phi/newPhi)
             if not consistent(newPhi):
                 continue
-            if verify(S, newPhi, user_cutpoints=user_cutpoints, instantiated_cutpoints=[], flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints) is False:
+            if verify(S, newPhi,
+                user_cutpoints=user_cutpoints,
+                instantiated_cutpoints=[],
+                flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints) is False:
                 return False
         return True
     
