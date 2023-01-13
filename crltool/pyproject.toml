@@ -1,0 +1,16 @@
+[project]
+name = "crl-tool"
+version = "0.1.0"
+description = "An implementation of Cartesian Reachability Logic"
+
+authors = [
+    {name = "Jan Tušil", email = "jenda.tusil@gmail.com"},
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+
+[project.scripts]
+crl-tool = "crltool.__main__:main"
