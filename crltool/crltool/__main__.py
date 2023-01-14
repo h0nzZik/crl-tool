@@ -1,5 +1,7 @@
 import argparse
+import json
 import logging
+
 from pathlib import Path
 
 from typing import (
@@ -10,6 +12,13 @@ from typing import (
 from pyk.kore.rpc import (
     KoreServer,
     KoreClient
+)
+
+from .crl import (
+    LP,
+    CLP,
+    ECLP,
+    Claim,
 )
 
 from .kcommands import KORE_RPC_COMMAND
@@ -54,8 +63,10 @@ def main() -> None:
         with KoreClientServer(definition_dir= Path(args['definition'])) as kcs:
             print(kcs)
             with open(args['specification'], 'r') as spec_f:
-                print(kcs.client)
-                pass
+                spec = json.loads(spec_f.read())
+            print(kcs.client)
+            print(spec)
+            pass
         return
     
     print("Other command")

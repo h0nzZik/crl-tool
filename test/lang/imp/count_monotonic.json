@@ -1,3 +1,14 @@
 {
-    
+    "antecedent" : {
+        "vars" : [],
+        "clp" : {
+
+        }
+    },
+    "consequent" : {
+        "vars" : [],
+        "clp" : {
+
+        }
+    }
 }
