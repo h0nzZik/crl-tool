@@ -20,7 +20,8 @@
         stdenv = pkgs.${system}.stdenv;
         pythonPackages = pkgs.${system}.python310Packages;
         k = k-framework.packages.${system}.k;
-        kore-exec = k-haskell-backend.packages.${system}.kore-exec-ghc9;
+        kore-rpc = k-haskell-backend.projectGhc9.${system}.hsPkgs.kore.components.exes.kore-rpc;
+        #kore = k-haskell-backend.packages.${system}.kore-rpc;
       in {
         crl-tool = python.pkgs.buildPythonApplication {
             name = "crl-tool";
@@ -36,7 +37,7 @@
               substituteInPlace $out/lib/*/site-packages/crltool/kcommands.py \
                 --replace "\"kprove\"" "\"${k}/bin/kprove\""
               substituteInPlace $out/lib/*/site-packages/crltool/kcommands.py \
-                --replace "\"kore-exec\"" "\"${kore-exec}/bin/kore-exec\""
+                --replace "\"kore-rpc\"" "\"${kore-rpc}/bin/kore-rpc\""
             '';
         };
 
@@ -46,7 +47,7 @@
           propagatedBuildInputs = [
             self.outputs.packages.${system}.crl-tool
             k
-            kore-exec
+            kore-rpc
           ] ;
 
           buildPhase = "make default";

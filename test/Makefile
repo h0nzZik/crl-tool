@@ -22,4 +22,4 @@ imp-run-count: lang/imp/count.imp ${IMP_TIMESTAMP}
 
 .PHONY: test-imp
 test-imp: ${IMP_TIMESTAMP}
-	crl-tool --definition ${IMP_KOMPILED_DIR} prove
+	crl-tool --definition ${IMP_KOMPILED_DIR}/imp-kompiled prove --specification lang/imp/count_monotonic.json
