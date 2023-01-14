@@ -48,7 +48,9 @@
             k
             kore-exec
           ] ;
-          skipBuild = true ;
+
+          buildPhase = "make default";
+          installPhase = "echo 'Empty install phase'";
         };
 
         default = self.outputs.packages.${system}.crl-tool ;

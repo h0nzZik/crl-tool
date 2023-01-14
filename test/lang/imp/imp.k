@@ -1,24 +1,25 @@
 // Taken from https://github.com/runtimeverification/k/blob/3c5e1c329dc69085ac3878583985d52cfc420a9c/k-distribution/pl-tutorial/1_k/2_imp/lesson_4/imp.k
+// We replaced 'seqstrict' with 'seqstrict' for performance reasons
 // Copyright (c) 2014-2019 K Team. All Rights Reserved.
 
 module IMP-SYNTAX
   imports DOMAINS-SYNTAX
   syntax AExp  ::= Int | Id
                  | "-" Int
-                 | AExp "/" AExp              [left, strict]
+                 | AExp "/" AExp              [left, seqstrict]
                  | "(" AExp ")"               [bracket]
-                 > AExp "+" AExp              [left, strict]
+                 > AExp "+" AExp              [left, seqstrict]
   syntax BExp  ::= Bool
                  | AExp "<=" AExp             [seqstrict, latex({#1}\leq{#2})]
-                 | "!" BExp                   [strict]
+                 | "!" BExp                   [seqstrict]
                  | "(" BExp ")"               [bracket]
-                 > BExp "&&" BExp             [left, strict(1)]
+                 > BExp "&&" BExp             [left, seqstrict(1)]
   syntax Block ::= "{" "}"
                  | "{" Stmt "}"
   syntax Stmt  ::= Block
-                 | Id "=" AExp ";"            [strict(2)]
+                 | Id "=" AExp ";"            [seqstrict(2)]
                  | "if" "(" BExp ")"
-                   Block "else" Block         [strict(1)]
+                   Block "else" Block         [seqstrict(1)]
                  | "while" "(" BExp ")" Block
                  > Stmt Stmt                  [left]
   syntax Pgm ::= "int" Ids ";" Stmt

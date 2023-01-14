@@ -15,3 +15,11 @@ build-imp: ${IMP_TIMESTAMP}
 
 ${IMP_TIMESTAMP}: lang/imp/imp.k
 	kompile --backend haskell --directory ${IMP_KOMPILED_DIR} $<
+
+.PHONY: imp-run-count
+imp-run-count: lang/imp/count.imp ${IMP_TIMESTAMP}
+	time krun --directory ${IMP_KOMPILED_DIR} $<
+
+.PHONY: test-imp
+test-imp: ${IMP_TIMESTAMP}
+	crl-tool --definition ${IMP_KOMPILED_DIR} prove
