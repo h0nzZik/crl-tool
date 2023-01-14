@@ -1,3 +1,5 @@
+test/.tmp
+.vscode
 dist
 dist-*
 cabal-dev

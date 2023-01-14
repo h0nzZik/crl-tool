@@ -1,10 +1,13 @@
 import argparse
+import logging
 
 from typing import (
     Final,
 )
 
 from pyk.ktool import kprove
+
+from .kcommand import KORE_RPC_COMMAND
 
 _LOGGER: Final = logging.getLogger(__name__)
 
