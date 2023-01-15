@@ -1,8 +1,14 @@
 import logging
 
+from itertools import (
+    chain
+)
+
 from typing import (
     Any,
     Final,
+    List,
+    Optional,
 )
 
 from pyk.kore.rpc import (
@@ -24,10 +30,15 @@ from pyk.kore.syntax import (
     Or,
     Not,
     Pattern,
+    Sort,
     SortApp,
     String,
     SVar,
     Top,
+)
+
+from pyk.kore.manip import (
+    free_occs
 )
 
 from .crl import (
@@ -91,6 +102,37 @@ def to_FOL(rs: ReachabilitySystem, square_var : EVar, phi: Pattern) -> Pattern:
         case _:
             raise NotImplementedError()
 
+def int_or_None(s: str) -> Optional[int]:
+    try:
+        return int(s)
+    except:
+        return None
+
+def get_fresh_evars(avoid: List[EVar], sort: Sort, prefix="Fresh", length=1) -> List[EVar]:
+    names_to_avoid = map(lambda ev: ev.name, avoid)
+    names_with_prefix_to_avoid : List[str] = [name for name in names_to_avoid if name.startswith(prefix)]
+    suffixes_to_avoid : List[str] = [name.removeprefix(prefix) for name in names_with_prefix_to_avoid]
+    nums_to_avoid : List[int] = [ion for ion in map(int_or_None, suffixes_to_avoid) if ion is not None]
+    n : int = max(nums_to_avoid) + 1
+    nums = list(range(n, n + length))
+    fresh_evars : List[EVar] = list(map(lambda n: EVar(name=prefix + str(n), sort=sort), nums))
+    return fresh_evars
+
+
+def lp_to_pattern(rs: ReachabilitySystem, lp: LP) -> Pattern:
+    ll : List[List[EVar]] = list(map(lambda p: list(chain.from_iterable(free_occs(p).values())), lp.patterns))
+    list_free_vars = chain.from_iterable(ll)
+    free_vars = list(list_free_vars)
+
+    fresh_vars = get_fresh_evars(free_vars, sort=None, prefix="Component", length=len(lp.patterns))
+    map(lambda pvar: to_FOL(rs, pvar[1], pvar[0]), zip(lp.patterns, fresh_vars))
+    raise NotImplementedError()
+
+def clp_to_pattern(rs: ReachabilitySystem, clp: CLP) -> Pattern:
+    raise NotImplementedError()
+
+def claim_to_pattern(rs: ReachabilitySystem, claim: Claim) -> Pattern:
+    raise NotImplementedError()
 
 # Checks an implication between two ECLPs.
 # Returns a substitution or a None
