@@ -21,14 +21,14 @@
         pythonPackages = pkgs.${system}.python310Packages;
         k = k-framework.packages.${system}.k;
         kore-rpc = k-haskell-backend.projectGhc9.${system}.hsPkgs.kore.components.exes.kore-rpc;
-        #kore = k-haskell-backend.packages.${system}.kore-rpc;
+        python-pyk = pyk.packages.${system}.pyk-python310 ;
       in {
         crl-tool = python.pkgs.buildPythonApplication {
             name = "crl-tool";
             src = ./crltool;
             format = "pyproject";
             propagatedBuildInputs = [
-              pyk.packages.${system}.pyk-python310
+              python-pyk
               python.pkgs.setuptools
             ];
             postInstall = ''
@@ -48,6 +48,7 @@
             self.outputs.packages.${system}.crl-tool
             k
             kore-rpc
+            python-pyk
           ] ;
 
           buildPhase = "make default";
