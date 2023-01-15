@@ -24,11 +24,9 @@ class KoreClientServer:
     server: KoreServer
     client: KoreClient
 
-    def __init__(self, definition_dir: Path):
+    def __init__(self, definition_dir: Path, main_module_name: str):
         port = 3000
-        with open(definition_dir / 'mainModule.txt', 'r') as mm:
-            main_module = mm.read()
-        self.server = KoreServer(kompiled_dir=definition_dir, module_name=main_module, command=KORE_RPC_COMMAND, port=port)
+        self.server = KoreServer(kompiled_dir=definition_dir, module_name=main_module_name, command=KORE_RPC_COMMAND, port=port)
         self.client = KoreClient('localhost', port=port)
     
     def __enter__(self) -> 'KoreClientServer':
@@ -41,9 +39,12 @@ class KoreClientServer:
 class ReachabilitySystem:
     kcs: KoreClientServer
     definition: Definition
+    main_module_name: str
 
     def __init__(self, definition_dir: Path):
-        self.kcs = KoreClientServer(definition_dir)
+        with open(definition_dir / 'mainModule.txt', 'r') as mm:
+            self.main_module_name = mm.read()
+        self.kcs = KoreClientServer(definition_dir=definition_dir, main_module_name=self.main_module_name)
         with open(definition_dir / 'definition.kore', 'r') as dc:
             self.definition = KoreParser(dc.read()).definition()
 
