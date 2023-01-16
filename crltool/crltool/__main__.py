@@ -21,6 +21,10 @@ from .kore_utils import (
 
 from .ReachabilitySystem import ReachabilitySystem
 
+from .verify import (
+    eclp_impl_to_pattern
+)
+
 _LOGGER: Final = logging.getLogger(__name__)
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -41,9 +45,10 @@ def main() -> None:
         with ReachabilitySystem(definition_dir=Path(args['definition'])) as rs:
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
+            print(rs.top_sort)
+            print(eclp_impl_to_pattern(rs, claim.antecedent, claim.consequent))
             #print(claim)
             #print(get_top_cell_initializer(rs.definition))
-            print(rs.top_sort)
             pass
         return
     

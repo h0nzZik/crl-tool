@@ -13,6 +13,7 @@ from typing import (
     Final,
     List,
     Optional,
+    Set,
 )
 
 from pyk.kore.rpc import (
@@ -123,8 +124,40 @@ def get_fresh_evars(avoid: List[EVar], sort: Sort, prefix="Fresh", length=1) -> 
     return fresh_evars
 
 
-#def get_free_evars(lp: LP) -> Set[EVar]:
-#    ll : List[List[EVar]] = list(map(lambda p: list(chain.from_iterable(free_occs(p).values())), lp.patterns))
+def free_evars_of_pattern(p: Pattern) -> Set[EVar]:
+    return set(chain.from_iterable(free_occs(p).values()))
+
+def free_evars_of_lp(lp: LP) -> Set[EVar]:
+    return set(chain.from_iterable(map(lambda p: free_evars_of_pattern(p), lp.patterns)))
+
+def free_evars_of_clp(clp : CLP) -> Set[EVar]:
+    return free_evars_of_lp(clp.lp).union(free_evars_of_pattern(clp.constraint))
+
+# For the purposes of fresh variable generation we do not care that some evars are bound.
+# In the worst case, we will generate variables that are fresher than necessary.
+def approximate_free_evars_of_eclp(eclp : ECLP) -> Set[EVar]:
+    return free_evars_of_clp(eclp.clp)
+
+def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> Pattern:
+    # We can strip the quantifiers of antecedent.
+    # The task is, roughly, to check that
+    # |= (exists x. phi) -> (exists y. psi)
+    # which is equivalent to
+    # |= forall x. (phi -> (exists y. psi)
+    # which is equivalent to
+    # |= phi -> (exists y. psi)
+    if (len(antecedent.clp.lp.patterns) != len(consequent.clp.lp.patterns)):
+        raise ValueError("The antecedent and consequent have different arity.")
+    arity = len(antecedent.clp.lp.patterns)
+    vars_to_avoid = free_evars_of_clp(antecedent.clp).union(approximate_free_evars_of_eclp(consequent))
+    fresh_vars = get_fresh_evars(list(vars_to_avoid), sort=rs.top_sort, prefix="Component", length=arity)
+    ante_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), antecedent.clp.constraint), zip(antecedent.clp.lp.patterns, fresh_vars)))
+    cons_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), consequent.clp.constraint), zip(consequent.clp.lp.patterns, fresh_vars)))
+    implications : List[Pattern] = list(map(lambda t: Implies(rs.top_sort, t[0], t[1]), zip(ante_preds, cons_preds)))
+    result = reduce(lambda a,b : And(rs.top_sort, a, b), implications)
+    return result
+    
+
 
 def lp_to_pattern(rs: ReachabilitySystem, lp: LP) -> Pattern:
     ll : List[List[EVar]] = list(map(lambda p: list(chain.from_iterable(free_occs(p).values())), lp.patterns))
