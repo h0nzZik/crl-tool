@@ -50,3 +50,11 @@ def get_symbol_decl_from_definition(definition: Definition, main_module_name: st
 def get_symbol_sort(definition: Definition, main_module_name: str, symbol_name: str) -> Sort:
     decl = get_symbol_decl_from_definition(definition, main_module_name, symbol_name)
     return decl.sort
+
+
+def get_top_cell_initializer(definition: Definition):
+    for a in definition.attrs:
+        if a.symbol == "topCellInitializer":
+            return a.params[0]
+    raise DefinitionError("topCellInitializer not found")
+    

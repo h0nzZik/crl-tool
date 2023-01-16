@@ -1,5 +1,9 @@
 import logging
 
+from functools import (
+    reduce
+)
+
 from itertools import (
     chain
 )
@@ -119,19 +123,27 @@ def get_fresh_evars(avoid: List[EVar], sort: Sort, prefix="Fresh", length=1) -> 
     return fresh_evars
 
 
+#def get_free_evars(lp: LP) -> Set[EVar]:
+#    ll : List[List[EVar]] = list(map(lambda p: list(chain.from_iterable(free_occs(p).values())), lp.patterns))
+
 def lp_to_pattern(rs: ReachabilitySystem, lp: LP) -> Pattern:
     ll : List[List[EVar]] = list(map(lambda p: list(chain.from_iterable(free_occs(p).values())), lp.patterns))
-    list_free_vars = chain.from_iterable(ll)
-    free_vars = list(list_free_vars)
+    free_vars : List[EVar] = list(chain.from_iterable(ll))
 
     fresh_vars = get_fresh_evars(free_vars, sort=None, prefix="Component", length=len(lp.patterns))
-    map(lambda pvar: to_FOL(rs, pvar[1], pvar[0]), zip(lp.patterns, fresh_vars))
-    raise NotImplementedError()
+    fols : List[Pattern] = map(lambda pvar: to_FOL(rs, pvar[1], pvar[0]), zip(lp.patterns, fresh_vars))
+    return reduce(lambda a, b: And(SortApp('SortBool', ()), a, b), fols)
 
 def clp_to_pattern(rs: ReachabilitySystem, clp: CLP) -> Pattern:
-    raise NotImplementedError()
+    return And(SortApp('SortBool', ()), lp_to_pattern(rs, clp.lp), clp.constraint)
+
+def eclp_to_pattern(rs: ReachabilitySystem, eclp: ECLP) -> Pattern:
+    pat = clp_to_pattern(rs, eclp.clp)
+    return reduce(lambda p, var: Exists(SortApp('SortBool', ()), var, p), eclp.vars, pat)
 
 def claim_to_pattern(rs: ReachabilitySystem, claim: Claim) -> Pattern:
+    ante_p = eclp_to_pattern(rs, claim.antecedent)
+    cons_p = eclp_to_pattern(rs, claim.consequent)
     raise NotImplementedError()
 
 # Checks an implication between two ECLPs.

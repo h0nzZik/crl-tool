@@ -44,9 +44,11 @@ class ReachabilitySystem:
     def __init__(self, definition_dir: Path):
         with open(definition_dir / 'mainModule.txt', 'r') as mm:
             self.main_module_name = mm.read()
-        self.kcs = KoreClientServer(definition_dir=definition_dir, main_module_name=self.main_module_name)
         with open(definition_dir / 'definition.kore', 'r') as dc:
-            self.definition = KoreParser(dc.read()).definition()
+            d = dc.read()
+        print(d)
+        self.definition = KoreParser(d).definition()
+        self.kcs = KoreClientServer(definition_dir=definition_dir, main_module_name=self.main_module_name)
 
     def __enter__(self) -> 'ReachabilitySystem':
         return self

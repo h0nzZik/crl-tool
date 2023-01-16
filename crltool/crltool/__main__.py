@@ -15,6 +15,10 @@ from .crl import (
     Claim,
 )
 
+from .kore_utils import (
+     get_top_cell_initializer
+)
+
 from .ReachabilitySystem import ReachabilitySystem
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -42,6 +46,7 @@ def main() -> None:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
             #print(kcs.client)
             print(claim)
+            print(get_top_cell_initializer(rs.definition))
             pass
         return
     
