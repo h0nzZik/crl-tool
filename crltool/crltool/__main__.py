@@ -8,6 +8,10 @@ from typing import (
     Final,
 )
 
+from pyk.kore.syntax import (
+    Pattern
+)
+
 from .crl import (
     LP,
     CLP,
@@ -34,6 +38,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
     argument_parser.add_argument('-d', '--definition', required=True)
     subparsers = argument_parser.add_subparsers(dest='command')
+    subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
+    subparser_check_implication.add_argument('--specification', required=True)
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
     return argument_parser
@@ -41,19 +47,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
-    if args['command'] == 'prove':
-        with ReachabilitySystem(definition_dir=Path(args['definition'])) as rs:
+    with ReachabilitySystem(definition_dir=Path(args['definition'])) as rs:
+        if args['command'] == 'check-implication':
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
-            print(rs.top_sort)
             pat = eclp_impl_to_pattern(rs, claim.antecedent, claim.consequent)
-            print(pat)
             patsimpl : Pattern = rs.kcs.client.simplify(pat)
             print(patsimpl.text)
-            #print(claim)
-            #print(get_top_cell_initializer(rs.definition))
-            pass
-        return
+            return
+        if args['command'] == 'prove':
+            print("Dummy proving...")
     
     print("Other command")
 
