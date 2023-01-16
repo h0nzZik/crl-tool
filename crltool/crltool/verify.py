@@ -150,15 +150,15 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
     # |= forall x. (phi -> (exists y. psi)
     # which is equivalent to
     # |= phi -> (exists y. psi)
-    # which (assuming y \not\in FV(phi)) is equivalent to
-    # |= exists y. ( phi -> psi)
+    ## which (assuming y \not\in FV(phi)) is equivalent to
+    ## |= exists y. ( phi -> psi)
     arity = len(antecedent.clp.lp.patterns)
     if (arity != len(consequent.clp.lp.patterns)):
         raise ValueError("The antecedent and consequent have different arity.")
     antecedent_fv = free_evars_of_clp(antecedent.clp)
-    intersecting_vars = antecedent_fv.intersection(consequent.vars)
-    if len(list(intersecting_vars)) >= 1:
-        raise NotImplementedError(f"The antecedent contains variables {intersecting_vars} which are existentially quantified in the consequent; this is not supported yet")
+    #intersecting_vars = antecedent_fv.intersection(consequent.vars)
+    #if len(list(intersecting_vars)) >= 1:
+    #    raise NotImplementedError(f"The antecedent contains variables {intersecting_vars} which are existentially quantified in the consequent; this is not supported yet")
 
     vars_to_avoid = antecedent_fv.union(approximate_free_evars_of_eclp(consequent))
     fresh_vars = get_fresh_evars(list(vars_to_avoid), sort=rs.top_sort, prefix="Component", length=arity)

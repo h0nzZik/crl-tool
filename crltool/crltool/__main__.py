@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import time
 
 from pathlib import Path
 
@@ -68,6 +69,7 @@ def main() -> None:
                 fw.write(patsimpl.text)
             #impl_result = rs.kcs.client.implies(Top(rs.top_sort), pat)
             #print(impl_result)
+            time.sleep(1)
             return
         if args['command'] == 'prove':
             print("Dummy proving...")

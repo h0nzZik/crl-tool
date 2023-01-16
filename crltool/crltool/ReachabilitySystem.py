@@ -35,7 +35,12 @@ class KoreClientServer:
 
     def __init__(self, definition_dir: Path, main_module_name: str):
         port = 3000
-        self.server = KoreServer(kompiled_dir=definition_dir, module_name=main_module_name, command=KORE_RPC_COMMAND, port=port)
+        self.server = KoreServer(
+            kompiled_dir=definition_dir, 
+            module_name=main_module_name, 
+            #command=(KORE_RPC_COMMAND, '--log', 'backend.log','--log-entries','DebugSolverSend,DebugSolverRecv'), 
+            command=(KORE_RPC_COMMAND, '--log', 'backend.log','--log-level','debug','--log-format','standard','--sqlog','sqlog.txt'), 
+            port=port)
         self.client = KoreClient('localhost', port=port)
     
     def __enter__(self) -> 'KoreClientServer':
