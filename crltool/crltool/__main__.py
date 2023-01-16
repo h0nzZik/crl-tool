@@ -46,7 +46,10 @@ def main() -> None:
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
             print(rs.top_sort)
-            print(eclp_impl_to_pattern(rs, claim.antecedent, claim.consequent))
+            pat = eclp_impl_to_pattern(rs, claim.antecedent, claim.consequent)
+            print(pat)
+            patsimpl = rs.kcs.client.simplify(pat)
+            print(patsimpl)
             #print(claim)
             #print(get_top_cell_initializer(rs.definition))
             pass

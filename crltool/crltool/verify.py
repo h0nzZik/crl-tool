@@ -69,9 +69,10 @@ def to_FOL(rs: ReachabilitySystem, square_var : EVar, phi: Pattern) -> Pattern:
         # The main case
         case App(symbol_name, _, _):
             sort = get_symbol_sort(rs.definition, rs.main_module_name, symbol_name)
-            if sort != square_var.sort:
+            #if sort != square_var.sort:
+            if sort != rs.top_sort:
                 return phi
-            return Equals(op_sort=SortApp('SortBool', ()),sort=sort, left=square_var, right=phi)
+            return Equals(op_sort=rs.top_sort,sort=sort, left=square_var, right=phi)
         # The recursive cases
         case Not(sort, pattern):
             return Not(sort, to_FOL(rs, square_var, pattern))
@@ -118,7 +119,10 @@ def get_fresh_evars(avoid: List[EVar], sort: Sort, prefix="Fresh", length=1) -> 
     names_with_prefix_to_avoid : List[str] = [name for name in names_to_avoid if name.startswith(prefix)]
     suffixes_to_avoid : List[str] = [name.removeprefix(prefix) for name in names_with_prefix_to_avoid]
     nums_to_avoid : List[int] = [ion for ion in map(int_or_None, suffixes_to_avoid) if ion is not None]
-    n : int = max(nums_to_avoid) + 1
+    if len(list(nums_to_avoid)) >= 1:
+        n = max(nums_to_avoid) + 1
+    else:
+        n = 0
     nums = list(range(n, n + length))
     fresh_evars : List[EVar] = list(map(lambda n: EVar(name=prefix + str(n), sort=sort), nums))
     return fresh_evars
@@ -152,6 +156,7 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
     vars_to_avoid = free_evars_of_clp(antecedent.clp).union(approximate_free_evars_of_eclp(consequent))
     fresh_vars = get_fresh_evars(list(vars_to_avoid), sort=rs.top_sort, prefix="Component", length=arity)
     ante_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), antecedent.clp.constraint), zip(antecedent.clp.lp.patterns, fresh_vars)))
+    # TODO deal with existential quantifiers of the consequent
     cons_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), consequent.clp.constraint), zip(consequent.clp.lp.patterns, fresh_vars)))
     implications : List[Pattern] = list(map(lambda t: Implies(rs.top_sort, t[0], t[1]), zip(ante_preds, cons_preds)))
     result = reduce(lambda a,b : And(rs.top_sort, a, b), implications)
