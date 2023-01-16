@@ -7,6 +7,7 @@ from pathlib import Path
 
 from typing import (
     Final,
+    Tuple,
 )
 
 from pyk.kore.syntax import (
@@ -40,6 +41,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
         description="A Cartesian Reachability Logic tool"
     )
     argument_parser.add_argument('-d', '--definition', required=True)
+    argument_parser.add_argument('--kore-rpc-args')
+    argument_parser.add_argument('--connect-to-port', default=None)
     subparsers = argument_parser.add_subparsers(dest='command')
     subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
     subparser_check_implication.add_argument('--specification', required=True)
@@ -52,8 +55,18 @@ def create_argument_parser() -> argparse.ArgumentParser:
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
+    if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
+        print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")
+        return
+    kore_rpc_args : Tuple[str,...] = ()
+    if args['kore_rpc_args'] is not None:
+        kore_rpc_args = tuple(str.split(args['kore_rpc_args']))
     #print(args)
-    with ReachabilitySystem(definition_dir=Path(args['definition'])) as rs:
+    with ReachabilitySystem(
+        definition_dir=Path(args['definition']), 
+        kore_rpc_args=kore_rpc_args, 
+        connect_to_port=args['connect_to_port'],
+        ) as rs:
         if args['command'] == 'check-implication':
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
@@ -69,11 +82,7 @@ def main() -> None:
                 fw.write(patsimpl.text)
             #impl_result = rs.kcs.client.implies(Top(rs.top_sort), pat)
             #print(impl_result)
-            time.sleep(1)
-            return
-        if args['command'] == 'prove':
+        elif args['command'] == 'prove':
             print("Dummy proving...")
-    
-    print("Other command")
 
         

@@ -3,6 +3,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     pyk.url = "github:runtimeverification/pyk/v0.1.94";
+    #pyk.url = "/home/jan/projects/rv/pyk";
     k-framework.url = "github:runtimeverification/k";
     k-haskell-backend.follows = "k-framework/haskell-backend";
   };

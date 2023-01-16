@@ -33,7 +33,7 @@ module IMP
   //imports DOMAINS
   imports INT-COMMON
   imports BOOL-COMMON
-  
+  imports BASIC-K
 
   syntax KResult ::= Int | Bool
 
