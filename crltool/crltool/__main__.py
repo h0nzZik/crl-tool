@@ -35,17 +35,13 @@ def create_argument_parser() -> argparse.ArgumentParser:
     return argument_parser
 
 def main() -> None:
-    #print("Hello")
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
-    #print(args)
     if args['command'] == 'prove':
         with ReachabilitySystem(definition_dir=Path(args['definition'])) as rs:
-            #print(kcs)
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
-            #print(kcs.client)
-            print(claim)
+            #print(claim)
             print(get_top_cell_initializer(rs.definition))
             pass
         return
