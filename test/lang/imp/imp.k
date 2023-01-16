@@ -2,6 +2,8 @@
 // We replaced 'seqstrict' with 'seqstrict' for performance reasons
 // Copyright (c) 2014-2019 K Team. All Rights Reserved.
 
+requires "my-prelude.md"
+
 module IMP-SYNTAX
   imports DOMAINS-SYNTAX
   syntax AExp  ::= Int | Id
@@ -26,14 +28,10 @@ module IMP-SYNTAX
   syntax Ids ::= List{Id,","}
 endmodule
 
-
 module IMP
   imports IMP-SYNTAX
   
-  //imports DOMAINS
-  imports INT-COMMON
-  imports BOOL-COMMON
-  imports BASIC-K
+  imports DOMAINS
 
   syntax KResult ::= Int | Bool
 
