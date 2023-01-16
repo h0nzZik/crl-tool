@@ -146,46 +146,32 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
     # We can strip the quantifiers of antecedent.
     # The task is, roughly, to check that
     # |= (exists x. phi) -> (exists y. psi)
-    # which is equivalent to
+    # which is (assuming x \not\in FV(exists y, psi)) equivalent to
     # |= forall x. (phi -> (exists y. psi)
     # which is equivalent to
     # |= phi -> (exists y. psi)
-    if (len(antecedent.clp.lp.patterns) != len(consequent.clp.lp.patterns)):
-        raise ValueError("The antecedent and consequent have different arity.")
+    # which (assuming y \not\in FV(phi)) is equivalent to
+    # |= exists y. ( phi -> psi)
     arity = len(antecedent.clp.lp.patterns)
-    vars_to_avoid = free_evars_of_clp(antecedent.clp).union(approximate_free_evars_of_eclp(consequent))
+    if (arity != len(consequent.clp.lp.patterns)):
+        raise ValueError("The antecedent and consequent have different arity.")
+    antecedent_fv = free_evars_of_clp(antecedent.clp)
+    intersecting_vars = antecedent_fv.intersection(consequent.vars)
+    if len(list(intersecting_vars)) >= 1:
+        raise NotImplementedError(f"The antecedent contains variables {intersecting_vars} which are existentially quantified in the consequent; this is not supported yet")
+
+    vars_to_avoid = antecedent_fv.union(approximate_free_evars_of_eclp(consequent))
     fresh_vars = get_fresh_evars(list(vars_to_avoid), sort=rs.top_sort, prefix="Component", length=arity)
-    ante_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), antecedent.clp.constraint), zip(antecedent.clp.lp.patterns, fresh_vars)))
-    # TODO deal with existential quantifiers of the consequent
-    cons_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), consequent.clp.constraint), zip(consequent.clp.lp.patterns, fresh_vars)))
-    implications : List[Pattern] = list(map(lambda t: Implies(rs.top_sort, t[0], t[1]), zip(ante_preds, cons_preds)))
-    result = reduce(lambda a,b : And(rs.top_sort, a, b), implications)
-    return result
-    
-
-
-def lp_to_pattern(rs: ReachabilitySystem, lp: LP) -> Pattern:
-    ll : List[List[EVar]] = list(map(lambda p: list(chain.from_iterable(free_occs(p).values())), lp.patterns))
-    free_vars : List[EVar] = list(chain.from_iterable(ll))
-
-    fresh_vars = get_fresh_evars(free_vars, sort=None, prefix="Component", length=len(lp.patterns))
-    fols : List[Pattern] = map(lambda pvar: to_FOL(rs, pvar[1], pvar[0]), zip(lp.patterns, fresh_vars))
-    return reduce(lambda a, b: And(SortApp('SortBool', ()), a, b), fols)
-
-def clp_to_pattern(rs: ReachabilitySystem, clp: CLP) -> Pattern:
-    return And(SortApp('SortBool', ()), lp_to_pattern(rs, clp.lp), clp.constraint)
-
-def eclp_to_pattern(rs: ReachabilitySystem, eclp: ECLP) -> Pattern:
-    pat = clp_to_pattern(rs, eclp.clp)
-    return reduce(lambda p, var: Exists(SortApp('SortBool', ()), var, p), eclp.vars, pat)
-
-def claim_to_pattern(rs: ReachabilitySystem, claim: Claim) -> Pattern:
-    ante_p = eclp_to_pattern(rs, claim.antecedent)
-    cons_p = eclp_to_pattern(rs, claim.consequent)
-    raise NotImplementedError()
-
-# Checks an implication between two ECLPs.
-# Returns a substitution or a None
-#def eclp_check_impl(kc: KoreClient, Phi: ECLP, Psi:ECLP):
-#    pass
-
+    #ante_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), antecedent.clp.constraint), zip(antecedent.clp.lp.patterns, fresh_vars)))
+    #cons_preds : List[Pattern] = list(map(lambda pvar: And(rs.top_sort, to_FOL(rs, pvar[1], pvar[0]), consequent.clp.constraint), zip(consequent.clp.lp.patterns, fresh_vars)))
+    ante_preds : List[Pattern] = list(map(lambda pvar: to_FOL(rs, pvar[1], pvar[0]), zip(antecedent.clp.lp.patterns, fresh_vars)))
+    cons_preds : List[Pattern] = list(map(lambda pvar: to_FOL(rs, pvar[1], pvar[0]), zip(consequent.clp.lp.patterns, fresh_vars)))
+    ante_conj : Pattern = And(rs.top_sort, reduce(lambda a,b : And(rs.top_sort, a, b), ante_preds), antecedent.clp.constraint)
+    cons_conj : Pattern = And(rs.top_sort, reduce(lambda a,b : And(rs.top_sort, a, b), cons_preds), consequent.clp.constraint)
+    cons_ex : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, cons_conj)
+    #implications : List[Pattern] = list(map(lambda t: Implies(rs.top_sort, t[0], t[1]), zip(ante_preds, cons_preds)))
+    #impl = reduce(lambda a,b : And(rs.top_sort, a, b), implications)
+    impl : Pattern = Implies(rs.top_sort, ante_conj, cons_ex)
+    return impl
+    #result = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, impl)
+    #return result
