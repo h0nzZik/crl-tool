@@ -42,7 +42,8 @@ def main() -> None:
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
             #print(claim)
-            print(get_top_cell_initializer(rs.definition))
+            #print(get_top_cell_initializer(rs.definition))
+            print(rs.top_sort)
             pass
         return
     

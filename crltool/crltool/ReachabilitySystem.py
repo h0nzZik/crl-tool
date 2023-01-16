@@ -1,3 +1,4 @@
+from functools import cached_property
 from pathlib import Path
 
 from typing import (
@@ -17,7 +18,13 @@ from pyk.kore.parser import (
 from pyk.kore.lexer import KoreLexer, KoreToken
 
 from pyk.kore.syntax import (
-    Definition
+    Definition,
+    Sort,
+)
+
+from .kore_utils import (
+    get_symbol_sort,
+    get_top_cell_initializer,
 )
 
 from .kcommands import KORE_RPC_COMMAND
@@ -63,3 +70,7 @@ class ReachabilitySystem:
 
     def __exit__(self, *args: Any) -> None:
         self.kcs.__exit__()
+
+    @cached_property
+    def top_sort(self) -> Sort:
+        return get_symbol_sort(self.definition, self.main_module_name, get_top_cell_initializer(self.definition))

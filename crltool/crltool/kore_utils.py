@@ -4,6 +4,7 @@ from typing import (
 )
 
 from pyk.kore.syntax import (
+    Attr,
     Definition,
     Import,
     Module,
@@ -41,7 +42,8 @@ def get_symbol_decl_from_module(module: Module, symbol_name: str) -> Optional[Sy
     return None
 
 def get_symbol_decl_from_definition(definition: Definition, main_module_name: str, symbol_name: str) -> SymbolDecl:
-    modules = map(lambda name: get_module_by_name(definition, name), get_all_imported_module_names(definition, main_module_name))
+    module_names = {main_module_name}.union(get_all_imported_module_names(definition, main_module_name))
+    modules = map(lambda name: get_module_by_name(definition, name), module_names)
     decls = [decl for decl in map(lambda module: get_symbol_decl_from_module(module, symbol_name), modules) if decl is not None]
     if len(list(decls)) >= 1:
         return decls[0]
@@ -55,6 +57,8 @@ def get_symbol_sort(definition: Definition, main_module_name: str, symbol_name: 
 def get_top_cell_initializer(definition: Definition) -> str:
     for a in definition.attrs:
         if a.symbol == "topCellInitializer":
-            return a.params[0].symbol
+            match a.params[0]:
+                case Attr(sym, _, _):
+                    return sym
     raise DefinitionError("topCellInitializer not found")
     
