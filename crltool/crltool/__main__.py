@@ -16,6 +16,10 @@ from pyk.kore.syntax import (
     Not,
 )
 
+from pyk.kore.parser import (
+    KoreParser
+)
+
 from .crl import (
     LP,
     CLP,
@@ -43,13 +47,20 @@ def create_argument_parser() -> argparse.ArgumentParser:
     argument_parser.add_argument('-d', '--definition', required=True)
     argument_parser.add_argument('--kore-rpc-args')
     argument_parser.add_argument('--connect-to-port', default=None)
+    
     subparsers = argument_parser.add_subparsers(dest='command')
+    
     subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
     subparser_check_implication.add_argument('--specification', required=True)
     subparser_check_implication.add_argument('--query-file', required=True)
     subparser_check_implication.add_argument('--output-file', required=True)
+    
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
+
+    subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
+    subparser_simplify.add_argument('--pattern', required=True)
+    
     return argument_parser
 
 def main() -> None:
@@ -84,5 +95,9 @@ def main() -> None:
             #print(impl_result)
         elif args['command'] == 'prove':
             print("Dummy proving...")
+        elif args['command'] == 'simplify':
+            with open(args['pattern'], 'r') as fr:
+                pat = KoreParser(fr.read()).pattern()
+            print(rs.kcs.client.simplify(pat).text)
 
         
