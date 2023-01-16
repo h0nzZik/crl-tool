@@ -48,8 +48,8 @@ def main() -> None:
             print(rs.top_sort)
             pat = eclp_impl_to_pattern(rs, claim.antecedent, claim.consequent)
             print(pat)
-            patsimpl = rs.kcs.client.simplify(pat)
-            print(patsimpl)
+            patsimpl : Pattern = rs.kcs.client.simplify(pat)
+            print(patsimpl.text)
             #print(claim)
             #print(get_top_cell_initializer(rs.definition))
             pass
