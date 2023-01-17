@@ -40,6 +40,10 @@ module IMP
                   <state color="red"> .Map </state>
                 </T>
 
+  syntax Bool ::= compareCells(KCell, KCell) [function]
+
+  rule compareCells(A, B) => A ==K B
+
 // AExp
   rule <k> X:Id => I ...</k> <state>... X |-> I ...</state>
   rule I1 / I2 => I1 /Int I2  requires I2 =/=Int 0
