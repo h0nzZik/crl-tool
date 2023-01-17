@@ -60,6 +60,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
 
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
+    subparser_simplify.add_argument('--output-file', required=True)
+    subparser_simplify.add_argument('--try-impl', type=bool, default=False)
     
     return argument_parser
 
@@ -98,6 +100,12 @@ def main() -> None:
         elif args['command'] == 'simplify':
             with open(args['pattern'], 'r') as fr:
                 pat = KoreParser(fr.read()).pattern()
-            print(rs.kcs.client.simplify(pat).text)
+            patsimpl0 : Pattern = rs.kcs.client.simplify(pat)
+            print(patsimpl0.text)
+            with open(args['output_file'], 'w') as fw:
+                fw.write(patsimpl0.text)
+            if args['try_impl']:
+                impl_result = rs.kcs.client.implies(pat.left, pat.right)
+                print(impl_result)
 
         
