@@ -24,6 +24,15 @@ from pyk.ktool.kprint import (
     KPrint
 )
 
+from pyk.ktool.kprove import (
+    KProve
+)
+
+from pyk.cterm import (
+    CTerm,
+    KInner,
+)
+
 from .crl import (
     LP,
     CLP,
@@ -68,6 +77,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_simplify.add_argument('--try-impl', type=bool, default=False)
 
     subparser_check_impl_direct = subparsers.add_parser('check-implication-directly', help='Simplify a pattern')
+    subparser_check_impl_direct.add_argument('--hackit', type=bool, default=False)
     subparser_check_impl_direct.add_argument('--pattern', required=True)
     
     return argument_parser
@@ -75,6 +85,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
+    logging.basicConfig(filename='crl-tool.log', encoding='utf-8', level=logging.DEBUG)
     if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
         print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")
         return
@@ -110,22 +121,32 @@ def main() -> None:
             kp = KPrint(args['definition'])                
             print('Input')
             print(kp.kore_to_pretty(pat))
-            impl_result = rs.kcs.client.implies(pat.left, pat.right)
-            print('Simplified')
-            print(kp.kore_to_pretty(impl_result.implication))
-            #print(impl_result.implication.text)
-            if (impl_result.satisfiable):
-                print("Satisfiable")
+            if args['hackit']:
+                kprove = KProve(definition_dir=args['definition'], port=3001, use_directory=Path("./mytemp"))
+                src = CTerm(kp.kore_to_kast(pat.left))
+                print(src)
+                tgt = CTerm(kp.kore_to_kast(pat.right))
+                print(tgt)
+                result = kprove.prove_cterm(claim_id='my-claim', init_cterm=src, target_cterm=tgt, depth=0, allow_zero_step=True)
+                print(result)
+                pass
             else:
-                print("Unsatisfiable")
-            if impl_result.substitution is not None:
-                print("Substitution:")
-                print(kp.kore_to_pretty(impl_result.substitution))
-                #print(impl_result.substitution.text)
-            if impl_result.predicate is not None:
-                print("Predicate:")
-                print(kp.kore_to_pretty(impl_result.predicate))
-                #print(impl_result.predicate.text)
+                impl_result = rs.kcs.client.implies(pat.left, pat.right)
+                print('Simplified')
+                print(kp.kore_to_pretty(impl_result.implication))
+                #print(impl_result.implication.text)
+                if (impl_result.satisfiable):
+                    print("Satisfiable")
+                else:
+                    print("Unsatisfiable")
+                if impl_result.substitution is not None:
+                    print("Substitution:")
+                    print(kp.kore_to_pretty(impl_result.substitution))
+                    #print(impl_result.substitution.text)
+                if impl_result.predicate is not None:
+                    print("Predicate:")
+                    print(kp.kore_to_pretty(impl_result.predicate))
+                    #print(impl_result.predicate.text)
             
         elif args['command'] == 'simplify':
             with open(args['pattern'], 'r') as fr:
