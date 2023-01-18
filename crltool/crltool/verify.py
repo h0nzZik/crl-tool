@@ -177,6 +177,9 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
     #result = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, impl)
     #return result
 
+# Assumes (A1) that antecedent does not contain (free or bound) variables from consequent.vars.
+# This is wlog, since one can alpha-rename the bound variables of the consequent.
+#
 # If the return value is [True], then antecedent ---> consequent.
 # More precisely, then:
 # forall (cfgs : Vec{Cfg, k}) (rho : Valuation),
@@ -188,29 +191,73 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
     if (arity != len(consequent.clp.lp.patterns)):
         raise ValueError("The antecedent and consequent have different arity.")
     
-    witnesses : Pattern = Top(rs.top_sort)
+    witness : Pattern = Top(rs.top_sort)
     for i in range(0, arity):
-        # Now it holds (1):
+        # Inv1:
         # ```
         # forall (cfgs : Vec{Cfg, k}) (rho : Valuation),
         #   (rho |= antecedent.clp.constraint /\ forall j in range(0, i), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j]) ->
         #   exists (rho2 : Valuation), (rho2 is the same as rho except on consequent.vars) /\
         #   (rho2 |= consequent.clp.constraint /\ forall j in range(0, i), (cfgs[j], rho2) |= consequent.clp.lp.patterns[j]).
         # ```
+        # Inv2:
+        # ```
+        # forall (j : range(0, i)) (rho : Valuation) (cfg : Cfg),
+        #   (rho |= witness) ->
+        #   ((cfg, rho) |= antecedent.clp.lp.patterns[j]) ->
+        #   ((cfg, rho) |= consequent.clp.lp.patterns[j]) .
+        # ```
         lhs : Pattern = antecedent.clp.lp.patterns[i]
-        rhs : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, And(rs.top_sort, consequent.clp.lp.patterns[i], witnesses))
+        rhs : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars,
+            And(rs.top_sort, consequent.clp.lp.patterns[i], And(rs.top_sort, consequent.clp.constraint, witness)))
         result : ImpliesResult = rs.kcs.client.implies(lhs, rhs)
         if result.satisfiable != True:
             return False
-        new_witnesses = result.substitution
-        # Furthermore, (1) still holds, and in addition, we have (2) saying that:
+        new_witness = result.substitution
+        # Furthermore, (Inv1) still holds, and in addition, we have (2) (from the would-be contract of `implies`) saying that:
         # ```
-        # |= antecedent.clp.lp.patterns[i] ---> exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ witness)
+        # |= antecedent.clp.lp.patterns[i] ---> exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ witness) /\ new_witness
         # ```
-        # Maybe we can prove it, but for now, just assume:
-        # assume( |= new_witnesses ---> witnesses )
-        witnesses = new_witnesses
-        # Now, just before finishing a loop iteration, we need to prove the folowing:
+        # And I believe that the semantics of the witness guarantees something in addition (3), saying that
+        # ```
+        # |= antecedent.clp.lp.patterns[i] ---> forall \vec{consequent.vars}, (new_witness --> (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ witness))
+        # ```
+
+        # We want to show that we preserve Inv2.
+        # In other words, we have to show that at this point, it holds (Inv2') that
+        # ```
+        # forall (j : range(0, i+1)) (rho : Valuation) (cfg : Cfg),
+        #   (rho |= witness /\ new_witness) ->
+        #   ((cfg, rho) |= antecedent.clp.lp.patterns[j]) ->
+        #   ((cfg, rho) |= consequent.clp.lp.patterns[j]) .
+        # ```
+        # This is equivalent to showing
+        # ```
+        # forall (j : range(0, i)) (rho : Valuation) (cfg : Cfg),
+        #   (rho |= witness /\ new_witness) ->
+        #   ((cfg, rho) |= antecedent.clp.lp.patterns[j]) ->
+        #   ((cfg, rho) |= consequent.clp.lp.patterns[j]) .
+        # ```
+        # and
+        # ```
+        # forall (rho : Valuation) (cfg : Cfg),
+        #   (rho |= witness /\ new_witness) ->
+        #   ((cfg, rho) |= antecedent.clp.lp.patterns[i]) ->
+        #   ((cfg, rho) |= consequent.clp.lp.patterns[i]) .
+        # ```
+        # Inv2 still holds, since we haven't modified any variables, only added new ones.
+        # The first goal holds because (rho |= witness /\ new_witness) -> (rho |= witness), and we can use Inv2.
+        # For the second goal, let us have
+        #   rho : Valuation
+        #   cfg : Cfg
+        #   H1: rho |= witness /\ new_witness
+        #   H2: (cfg, rho) |= antecedent.clp.lp.patterns[i]
+        # and goal
+        #   (cfg, rho) |= consequent.clp.lp.patterns[i] .
+        # which follows directly from (3) by the semantics of matching logic.
+
+        # We also want to show that we preserve Inv1.
+        # At this point, we need to prove the folowing:
         # ```
         # forall (cfgs : Vec{Cfg, k}) (rho : Valuation),
         #   (rho |= antecedent.clp.constraint /\ forall j in range(0, i+1), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j]) ->
@@ -245,7 +292,7 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         #     /\ (cfgs[i], rho2) |= consequent.clp.lp.patterns[i])
         #     /\ (forall j in range(0, i), (cfgs[j], rho2) |= consequent.clp.lp.patterns[j])).
         # ```
-        # We first use `((1), cfgs, rho. H1, H3` to obtain
+        # We first use `((Inv1), cfgs, rho. H1, H3` to obtain
         # ```
         #   rho2: Valuation
         #   Hrho2rho: rho2 is the same as rho except on consequent.vars
@@ -255,23 +302,47 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         # Now, if we tried to let `rho2 := rho2`, we would have troubles proving
         # that `(cfgs[i], rho2) |= consequent.clp.lp.patterns[i])`.
         # So we postpone instantiating rho2 until we know better.
-        # We still have (2); together with H2, we obtain
-        #   H2': (cfgs[i], rho) |= exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ witness)
+        # We still have (2).
+        # Using (2) together with H2, we obtain
+        #   H2': (cfgs[i], rho) |= exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ witness) /\ new_witness
         # In other words, by semantics of the logic, we obtain some
         #   rho': Valuation
         #   Hrho'rho: rho' is the same as rho except on consequent.vars
         #   Hrho'i: (cfgs[i], rho') |= consequent.clp.lp.patterns[i]
+        #   Hrho'c: (cfgs[i], rho') |= consequent.clp.constraint
         #   Hrho'w: (cfgs[i], rho') |= witness
-        # and by combining Hrho'rho with Hrho2rho using transitivity of equality, we obtain
-        #   Hrho'rho2: rho' is the same as rho2 except on consequent.vars
-        # (I am not sure if we can use it, but lets have it for now).
-        #
-    
-    lhs2 : Pattern = antecedent.clp.constraint
-    rhs2 : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, And(rs.top_sort, consequent.clp.constraint, witnesses))
-    result2 : ImpliesResult = rs.kcs.client.implies(lhs2, rhs2)
-    if result2.satisfiable != True:
-        return False
+        #   Hrho'nw: (cfgs[i], rho') |= new_witness
+        # Now, in the goal we let (rho2 := rho').
+        # The first three subgoals are proven by Hrho'rho, Hrho'c, and Hrho'i, respectively.
+        # It remains to prove
+        # ```
+        # forall j in range(0, i), (cfgs[j], rho') |= consequent.clp.lp.patterns[j]
+        # ```
+        # which we can reduce using Inv2, Hrho'w to something like
+        # ```
+        # forall j in range(0, i), (cfgs[j], rho') |= antecedent.clp.lp.patterns[j]
+        # ```
+        # That is almost the same as
+        #   H3: forall j in range(0, i), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j]
+        # the only difference being that rho' and rho differs on consequent.vars
+        # But by the assumption A1, antecedent does not contain variables from consequent.vars,
+        # and therefore H3 implies the goal.
+        # We are done [].
+        witness = And(rs.top_sort, witness, new_witness)
+        # Now we just change Inv2' into Inv2'', applying the standard Hoare-logic rule for variable assignment.
+        # ```
+        # forall (j : range(0, i+1)) (rho : Valuation) (cfg : Cfg),
+        #   rho |= witness ->
+        #   ((cfg, rho) |= antecedent.clp.lp.patterns[j]) ->
+        #   ((cfg, rho) |= consequent.clp.lp.patterns[j]) .
+        # ```
+        continue # just to be explicit
+
+    #lhs2 : Pattern = antecedent.clp.constraint
+    #rhs2 : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, And(rs.top_sort, consequent.clp.constraint, witnesses))
+    #result2 : ImpliesResult = rs.kcs.client.implies(lhs2, rhs2)
+    #if result2.satisfiable != True:
+    #    return False
     
     return True
 
