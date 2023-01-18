@@ -17,7 +17,8 @@ from typing import (
 )
 
 from pyk.kore.rpc import (
-    KoreClient
+    ImpliesResult,
+    KoreClient,
 )
 
 from pyk.kore.syntax import (
@@ -175,3 +176,102 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
     return impl
     #result = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, impl)
     #return result
+
+# If the return value is [True], then antecedent ---> consequent.
+# More precisely, then:
+# forall (cfgs : Vec{Cfg, k}) (rho : Valuation),
+#   (rho |= antecedent.clp.constraint /\ forall i in range(0, k), (cfgs[i], rho) |= antecedent.clp.lp.patterns[i]) ->
+#   exists (rho2 : Valuation), (rho2 is the same as rho except on consequent.vars) /\
+#   (rho2 |= consequent.clp.constraint /\ forall i in range(0, k), (cfgs[i], rho2) |= consequent.clp.lp.patterns[i]).
+def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> bool:
+    arity = len(antecedent.clp.lp.patterns)
+    if (arity != len(consequent.clp.lp.patterns)):
+        raise ValueError("The antecedent and consequent have different arity.")
+    
+    witnesses : Pattern = Top(rs.top_sort)
+    for i in range(0, arity):
+        # Now it holds (1):
+        # ```
+        # forall (cfgs : Vec{Cfg, k}) (rho : Valuation),
+        #   (rho |= antecedent.clp.constraint /\ forall j in range(0, i), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j]) ->
+        #   exists (rho2 : Valuation), (rho2 is the same as rho except on consequent.vars) /\
+        #   (rho2 |= consequent.clp.constraint /\ forall j in range(0, i), (cfgs[j], rho2) |= consequent.clp.lp.patterns[j]).
+        # ```
+        lhs : Pattern = antecedent.clp.lp.patterns[i]
+        rhs : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, And(rs.top_sort, consequent.clp.lp.patterns[i], witnesses))
+        result : ImpliesResult = rs.kcs.client.implies(lhs, rhs)
+        if result.satisfiable != True:
+            return False
+        new_witnesses = result.substitution
+        # Furthermore, (1) still holds, and in addition, we have (2) saying that:
+        # ```
+        # |= antecedent.clp.lp.patterns[i] ---> exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ witness)
+        # ```
+        # Maybe we can prove it, but for now, just assume:
+        # assume( |= new_witnesses ---> witnesses )
+        witnesses = new_witnesses
+        # Now, just before finishing a loop iteration, we need to prove the folowing:
+        # ```
+        # forall (cfgs : Vec{Cfg, k}) (rho : Valuation),
+        #   (rho |= antecedent.clp.constraint /\ forall j in range(0, i+1), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j]) ->
+        #   exists (rho2 : Valuation), (rho2 is the same as rho except on consequent.vars) /\
+        #   (rho2 |= consequent.clp.constraint /\ forall j in range(0, i+1), (cfgs[j], rho2) |= consequent.clp.lp.patterns[j]).
+        # ```
+        # which is equivalent to:
+        # ```
+        # forall (cfgs : Vec{Cfg, k}) (rho : Valuation),
+        #   (rho |= antecedent.clp.constraint
+        #    /\ (cfgs[i], rho) |= antecedent.clp.lp.patterns[i]
+        #    /\ (forall j in range(0, i), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j])
+        #   ) ->
+        #   exists (rho2 : Valuation),
+        #     (rho2 is the same as rho except on consequent.vars)
+        #     /\ (rho2 |= consequent.clp.constraint
+        #     /\ (cfgs[i], rho2) |= consequent.clp.lp.patterns[i])
+        #     /\ (forall j in range(0, i), (cfgs[j], rho2) |= consequent.clp.lp.patterns[j])).
+        # ```
+        # Ok, let us have
+        #   cfgs : Vec{Cfg, k}
+        #   rho : Valuation
+        # arbitrary, and in addition
+        #   H1: rho |= antecedent.clp.constraint
+        #   H2: (cfgs[i], rho) |= antecedent.clp.lp.patterns[i]
+        #   H3: (forall j in range(0, i), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j])
+        # ; we have to prove that
+        # ```
+        #   exists (rho2 : Valuation),
+        #     (rho2 is the same as rho except on consequent.vars)
+        #     /\ (rho2 |= consequent.clp.constraint
+        #     /\ (cfgs[i], rho2) |= consequent.clp.lp.patterns[i])
+        #     /\ (forall j in range(0, i), (cfgs[j], rho2) |= consequent.clp.lp.patterns[j])).
+        # ```
+        # We first use `((1), cfgs, rho. H1, H3` to obtain
+        # ```
+        #   rho2: Valuation
+        #   Hrho2rho: rho2 is the same as rho except on consequent.vars
+        #   Hrho2constr: rho2 |= consequent.clp.constraint
+        #   Hrho2i: forall j in range(0, i), (cfgs[j], rho2) |= consequent.clp.lp.patterns[j]
+        # ```
+        # Now, if we tried to let `rho2 := rho2`, we would have troubles proving
+        # that `(cfgs[i], rho2) |= consequent.clp.lp.patterns[i])`.
+        # So we postpone instantiating rho2 until we know better.
+        # We still have (2); together with H2, we obtain
+        #   H2': (cfgs[i], rho) |= exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ witness)
+        # In other words, by semantics of the logic, we obtain some
+        #   rho': Valuation
+        #   Hrho'rho: rho' is the same as rho except on consequent.vars
+        #   Hrho'i: (cfgs[i], rho') |= consequent.clp.lp.patterns[i]
+        #   Hrho'w: (cfgs[i], rho') |= witness
+        # and by combining Hrho'rho with Hrho2rho using transitivity of equality, we obtain
+        #   Hrho'rho2: rho' is the same as rho2 except on consequent.vars
+        # (I am not sure if we can use it, but lets have it for now).
+        #
+    
+    lhs2 : Pattern = antecedent.clp.constraint
+    rhs2 : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, And(rs.top_sort, consequent.clp.constraint, witnesses))
+    result2 : ImpliesResult = rs.kcs.client.implies(lhs2, rhs2)
+    if result2.satisfiable != True:
+        return False
+    
+    return True
+
