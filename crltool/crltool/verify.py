@@ -255,10 +255,14 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         print(f"Equalities: {equalities}")
         filtered_equalities : Dict[EVar, Pattern] = {k : equalities[k] for k in equalities if free_evars_of_pattern(equalities[k]).issubset(set(consequent.vars).union(free_evars_of_lhs))} 
         print(f"Filtered equalities: {filtered_equalities}")
+        ## @ghost_variable
+        #unfiltered_equalities : Dict[EVar, Pattern] = {k : equalities[k] for k in equalities if free_evars_of_pattern(equalities[k]).issubset(set(consequent.vars).union(free_evars_of_lhs))} 
+        #print(f"Unfiltered equalities: {unfiltered_equalities}")
         filtered_witness : Pattern = equalities_to_pattern(rs, filtered_equalities)
-        
-        # Now |= witness <-> filtered_witness /\ AND_{v, expr : unused_variables} (v = expr)
-        #
+        ## @ghost_variable
+        #unfiltered_witness = equalities_to_pattern(rs, unfiltered_equalities)
+        # Now we asume (Hwitfwitunfwit)
+        # |= witness <-> filtered_witness /\ unfiltered_witness
 
         rhs_body : Pattern = And(rs.top_sort, consequent.clp.lp.patterns[i], And(rs.top_sort, consequent.clp.constraint, filtered_witness))
         rhs : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, rhs_body)
@@ -372,17 +376,65 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         #   Hrho'w: (cfgs[i], rho') |= filtered_witness
         #   Hrho'nw: (cfgs[i], rho') |= new_witness
         #
-        # Now, we define a valuation rho'' 
+        # Note that in general, we do not have (cfgs[i], rho') |= unfiltered_witness.
+        # But surely there exists a valuation rho'' such that
+        #   Hrho''uf: (cfgs[i], rho'') |= unfiltered_witness
+        #   Hrho''i: (cfgs[i], rho'') |= consequent.clp.lp.patterns[i]
+        #   Hrho''c: (cfgs[i], rho'') |= consequent.clp.constraint
+        #   Hrho''fw: (cfgs[i], rho'') |= filtered_witness
+        # - just define rho''(V) = rho'(p) whenever `unfiltered_equalities[V] == p``,
+        #           and rho''(V) = rho'(V) whenever `not V in unfiltered_equalities`,
+        #   and note that free variables of consequent.clp.lp.patterns[i], consequent.clp.constraint, and filtered_witness
+        #   are either those bound in the RHS (that is, the ones from consequent.vars),
+        #   or those that are present in consequent.clp.lp.patterns[i],
+        #   and therefore rho'' and rho' behaves the same on these patterns.
+        # 
+        # Then we also get
+        #   Hrho''fw: (cfgs[i], rho'') |= witness
+        # We also want to prove that
+        #   rho'' is the same as rho except on consequent.vars
+        # which, by the definition of rho'' and the hypothesis Hrho'rho, reduces to
+        # ```
+        #   on the variables from `unfiltered_equalities`, rho'' is the same as rho
+        # ```
+        # Let `V` be such variable; we want to show that
+        # ```
+        #   rho''(V) = rho(V)
+        # ```
+        # 
+        # . Since `rho |= witness`, by Hwitfwitunfwit
+        # we also have `rho |= unfiltered_witness`, which implies that
+        # ```
+        #   rho(V) = rho(unfiltered_equalities[v])
+        # ```
+        # Therefore, the goal is equivalent (using also the definition of rho'') to
+        # ```
+        #   rho'(unfiltered_equalities[V]) = rho(unfiltered_equalities[V])
+        # ```
+        # which holds assuming that rho and rho' are the same for FV(unfiltered_equalities[V]).
+        # This requires an auxilliary invariant about `witness` which I am not going to formally state
+        # and prove there, but the invariant boils down to the assumption
+        ########################################################################################
+        ########################################################################################
+        #                   BIG RED ASSUMPTION HERE
+        # The witness returned by the implies procedure has to property that all its equalities,
+        # if oriented properly, map the quantified variables of the RHS to patterns
+        # **whose set of free variables is subset of the set of free variables of the LHS.
+        ########################################################################################
+        ########################################################################################
         #
-        # Now, in the goal we let (rho2 := rho').
-        # The first three subgoals are proven by Hrho'rho, Hrho'c, and Hrho'i, respectively.
+        # Now we have
+        #   Hrho''rho: rho'' is the same as rho except on consequent.vars
+        #
+        # Now, in the goal we let (rho2 := rho'').
+        # The first three subgoals are proven by Hrho''rho, Hrho'c, and Hrho'i, respectively.
         # It remains to prove
         # ```
-        # forall j in range(0, i), (cfgs[j], rho') |= consequent.clp.lp.patterns[j]
+        # forall j in range(0, i), (cfgs[j], rho'') |= consequent.clp.lp.patterns[j]
         # ```
-        # which we can reduce using Inv2, Hrho'w to something like
+        # which we can reduce using Inv2, Hrho''w to something like
         # ```
-        # forall j in range(0, i), (cfgs[j], rho') |= antecedent.clp.lp.patterns[j]
+        # forall j in range(0, i), (cfgs[j], rho'') |= antecedent.clp.lp.patterns[j]
         # ```
         # That is almost the same as
         #   H3: forall j in range(0, i), (cfgs[j], rho) |= antecedent.clp.lp.patterns[j]
