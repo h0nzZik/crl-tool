@@ -73,6 +73,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
 
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
+    subparser_prove.add_argument('--depth', type=int, default=10)
 
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
@@ -141,12 +142,13 @@ def simplify(rs: ReachabilitySystem, args) -> int:
 def prove(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
-        settings = VerifySettings(eclp_impl_valid, [], 10)
+        settings = VerifySettings(eclp_impl_valid_trough_lists, [], 10)
         result : VerifyResult = verify(
             rs=rs, 
             settings=settings, 
             antecedent=claim.antecedent, 
             consequent=claim.consequent,
+            depth=int(args['depth']),
         )
         print(result)
     return 0

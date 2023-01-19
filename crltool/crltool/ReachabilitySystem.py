@@ -46,7 +46,6 @@ class KoreClientServer:
         kore_rpc_args: Iterable[str] = (),
         connect_to_port : Optional[str] = None,
         ):
-        print(f'ctp: {connect_to_port}')
         if connect_to_port is not None:
             port = int(connect_to_port)
             timeout=1500

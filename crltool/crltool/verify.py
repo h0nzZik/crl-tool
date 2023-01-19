@@ -521,7 +521,7 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
         return VerifyResult(True, set()) # Conseq, Axiom
 
     if (depth >= settings.max_depth):
-        return VerifyResult(False, set([antecedent]))
+        return VerifyResult(False, {antecedent})
 
     # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
     user_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, settings.check_eclp_impl_valid(rs, antecedent, antecedentC)) for antecedentC in settings.user_cutpoints if not antecedentC in user_cutpoint_blacklist]
@@ -581,4 +581,4 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
             verify_result.valid = verify_result.valid and intermediate_result.valid
             verify_result.final_states.update(intermediate_result.final_states)
         return verify_result    
-    return VerifyResult(False, set([antecedent]))
+    return VerifyResult(False, {antecedent})
