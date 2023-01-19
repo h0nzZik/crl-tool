@@ -519,6 +519,7 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
     # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
     usable_flushed_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, result) for (antecedentC, result) in flushed_cutpoints_with_subst if result.valid]
     if (len(list(usable_flushed_cutpoints)) > 0):
+        print(f'Using cutpoint (usable: {usable_flushed_cutpoints})')
         return VerifyResult(True, [(antecedent, depth)]) # Conseq, Axiom
 
     if (depth >= settings.max_depth):
@@ -562,6 +563,7 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
                 pattern_j = step_result.state.kore
         print(f'Iterations: {iterations}')
         curr_depth : int = depth + iterations
+        flush = True if iterations > 0 else False
 
         # Cannot rewrite the j'th component anymore
         if step_result.reason == StopReason.DEPTH_BOUND:
@@ -586,13 +588,21 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
             #if not consistent(newantecedent):
             #    continue
 
+            if flush and len(instantiated_cutpoints) > 0:
+                print("Flushing")
+                new_instantiated_cutpoints = []
+                new_flushed_cutpoints = instantiated_cutpoints+flushed_cutpoints
+            else:
+                new_instantiated_cutpoints = instantiated_cutpoints
+                new_flushed_cutpoints = flushed_cutpoints
+
             intermediate_result : VerifyResult = verify(
                 settings=settings,
                 rs=rs,
                 antecedent=newantecedent,
                 consequent=consequent,
-                instantiated_cutpoints=[],
-                flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints,
+                instantiated_cutpoints=new_instantiated_cutpoints,
+                flushed_cutpoints=new_flushed_cutpoints,
                 user_cutpoint_blacklist=user_cutpoint_blacklist,
                 depth=curr_depth,
             )
