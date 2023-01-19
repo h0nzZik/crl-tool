@@ -80,7 +80,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
-    logging.basicConfig(filename='crl-tool.log', encoding='utf-8', level=logging.DEBUG)
+    logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
     if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
         print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")
         return

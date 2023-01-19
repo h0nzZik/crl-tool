@@ -12,6 +12,7 @@ from itertools import (
 
 from typing import (
     Any,
+    Dict,
     Final,
     List,
     Optional,
@@ -65,7 +66,7 @@ from .ReachabilitySystem import (
     ReachabilitySystem
 )
 
-LOGGER: Final = logging.getLogger(__name__)
+_LOGGER: Final = logging.getLogger(__name__)
 
 # But this will have a problem with predicate patterns
 def to_FOL(rs: ReachabilitySystem, square_var : EVar, phi: Pattern) -> Pattern:
@@ -181,12 +182,40 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
     #return result
 
 
+
+def extract_equalities_from_witness(expected_vars : Set[EVar], witness : Pattern) -> Dict[EVar, Pattern]:
+    result : Dict[EVar, Pattern] = dict()
+    def go(w : Pattern):
+        match w:
+            case And(_, l, r):
+                go(l)
+                go(r)
+                return
+            case Equals(_, _, l, r):
+                if type(l) is EVar and l in expected_vars:
+                    result[l] = r
+                    return
+                if type(r) is EVar and r in expected_vars:
+                    result[r] = l
+                    return
+                raise ValueError(f"Unexpected equality '{l} = {r}' in the witness {witness}")
+            case _:
+                return
+
+    go(witness)
+    return result
+
+def equalities_to_pattern(rs: ReachabilitySystem, eqls : Dict[EVar, Pattern]) -> Pattern:
+    pairs : List[Tuple[EVar, Pattern]] = [(k, eqls[k]) for k in eqls]
+    list_of_equalities : List[Pattern] = list(map(lambda p: Equals(rs.top_sort, p[0].sort, p[0], p[1]), pairs))
+    conj : Pattern = reduce(lambda a,b : And(rs.top_sort, a, b), list_of_equalities)
+    return conj
+
 @final
 @dataclass(frozen=True)
 class EclpImpliesResult:
     valid: bool
     witness: Optional[Pattern]
-
 
 # Assumes (A1) that antecedent does not contain (free or bound) variables from consequent.vars.
 # This is wlog, since one can alpha-rename the bound variables of the consequent.
@@ -219,21 +248,36 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         #   ((cfg, rho) |= consequent.clp.lp.patterns[j]) .
         # ```
         lhs : Pattern = antecedent.clp.lp.patterns[i]
-        rhs_body : Pattern = And(rs.top_sort, consequent.clp.lp.patterns[i], And(rs.top_sort, consequent.clp.constraint, witness))
+        free_evars_of_lhs : Set[EVar] = free_evars_of_pattern(lhs)
+        equalities : Dict[EVar, Pattern] = extract_equalities_from_witness(set(consequent.vars), witness)
+        print(f"Equalities: {equalities}")
+        filtered_equalities : Dict[EVar, Pattern] = {k : equalities[k] for k in equalities if free_evars_of_pattern(equalities[k]).issubset(set(consequent.vars).union(free_evars_of_lhs))} 
+        print(f"Filtered equalities: {filtered_equalities}")
+        filtered_witness : Pattern = equalities_to_pattern(rs, filtered_equalities)
+        
+        # Now |= witness <-> filtered_witness /\ AND_{v, expr : unused_variables} (v = expr)
+        #
+
+        rhs_body : Pattern = And(rs.top_sort, consequent.clp.lp.patterns[i], And(rs.top_sort, consequent.clp.constraint, filtered_witness))
         rhs : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, rhs_body)
-        result : ImpliesResult = rs.kcs.client.implies(lhs, rhs)
+        try:
+            result : ImpliesResult = rs.kcs.client.implies(lhs, rhs)
+        except:
+            _LOGGER.error(f"Implication check failed on the position {i}, with lhs={lhs} and rhs={rhs}")
+            raise
         if result.satisfiable != True:
             return EclpImpliesResult(False, None)
         if (result.substitution is None):
             raise RuntimeError("Satisfable, but no witness was given")
         new_witness : Pattern = result.substitution
+        print(f"new_witness: {new_witness}")
         # Furthermore, (Inv1) still holds, and in addition, we have (2) (from the would-be contract of `implies`) saying that:
         # ```
-        # |= antecedent.clp.lp.patterns[i] ---> exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ witness) /\ new_witness
+        # |= antecedent.clp.lp.patterns[i] ---> exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ filtered_witness) /\ new_witness
         # ```
         # And I believe that the semantics of the witness guarantees something in addition (3), saying that
         # ```
-        # |= antecedent.clp.lp.patterns[i] ---> forall \vec{consequent.vars}, (new_witness --> (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ witness))
+        # |= antecedent.clp.lp.patterns[i] ---> forall \vec{consequent.vars}, (new_witness --> (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ filtered_witness))
         # ```
 
         # We want to show that we preserve Inv2.
@@ -317,14 +361,17 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         # So we postpone instantiating rho2 until we know better.
         # We still have (2).
         # Using (2) together with H2, we obtain
-        #   H2': (cfgs[i], rho) |= exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ witness) /\ new_witness
+        #   H2': (cfgs[i], rho) |= exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ filtered_witness) /\ new_witness
         # In other words, by semantics of the logic, we obtain some
         #   rho': Valuation
         #   Hrho'rho: rho' is the same as rho except on consequent.vars
         #   Hrho'i: (cfgs[i], rho') |= consequent.clp.lp.patterns[i]
         #   Hrho'c: (cfgs[i], rho') |= consequent.clp.constraint
-        #   Hrho'w: (cfgs[i], rho') |= witness
+        #   Hrho'w: (cfgs[i], rho') |= filtered_witness
         #   Hrho'nw: (cfgs[i], rho') |= new_witness
+        #
+        # Now, we define a valuation rho'' 
+        #
         # Now, in the goal we let (rho2 := rho').
         # The first three subgoals are proven by Hrho'rho, Hrho'c, and Hrho'i, respectively.
         # It remains to prove
