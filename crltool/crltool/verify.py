@@ -34,6 +34,7 @@ from pyk.kore.syntax import (
     Equals,
     EVar,
     Exists,
+    Floor,
     Forall,
     Iff,
     Implies,
@@ -252,9 +253,9 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         lhs : Pattern = And(rs.top_sort, antecedent.clp.lp.patterns[i], antecedent.clp.constraint)
         free_evars_of_lhs : Set[EVar] = free_evars_of_pattern(lhs)
         equalities : Dict[EVar, Pattern] = extract_equalities_from_witness(set(consequent.vars), witness)
-        print(f"Equalities: {equalities}")
+        #print(f"Equalities: {equalities}")
         filtered_equalities : Dict[EVar, Pattern] = {k : equalities[k] for k in equalities if free_evars_of_pattern(equalities[k]).issubset(set(consequent.vars).union(free_evars_of_lhs))} 
-        print(f"Filtered equalities: {filtered_equalities}")
+        #print(f"Filtered equalities: {filtered_equalities}")
         ## @ghost_variable
         #unfiltered_equalities : Dict[EVar, Pattern] = {k : equalities[k] for k in equalities if free_evars_of_pattern(equalities[k]).issubset(set(consequent.vars).union(free_evars_of_lhs))} 
         #print(f"Unfiltered equalities: {unfiltered_equalities}")
@@ -461,19 +462,19 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
     return EclpImpliesResult(True, witness)
 
 def clp_to_list(rs : ReachabilitySystem, clp : CLP) -> Pattern:
-    sortList = SortApp('SortList', ())
-    list_items : List[Pattern] = list(map(lambda p: App('LblListItem', (sortList,), (App('Inj', (rs.top_sort, SortApp('SortKItem', ()))),)), clp.lp.patterns))
-    resulting_list : Pattern = reduce(lambda p, q: App("Lbl'Unds'List'Unds'", (sortList,), (p, q)), list_items, App("Lbl'Stop'List", (sortList,)))
-    constrained = And(rs.top_sort, resulting_list, clp.constraint)
+    sortList = SortApp('SortList', (rs.top_sort,))
+    list_items : List[Pattern] = list(map(lambda p: App('LblListItem', (), (App('inj', (rs.top_sort, SortApp('SortKItem', ())), (p,)),)), clp.lp.patterns))
+    resulting_list : Pattern = reduce(lambda p, q: App("Lbl'Unds'List'Unds'", (), (p, q)), list_items, App("Lbl'Stop'List", ()))
+    constrained = And(SortApp('SortList', ()), resulting_list, Floor(rs.top_sort, SortApp('SortList', ()), clp.constraint))
     return constrained
 
 
 def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> EclpImpliesResult:
     antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
     consequent_list : Pattern = clp_to_list(rs, consequent.clp)
-    ex_consequent_list : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, consequent_list)
-    print(f'from {antecedent_list}')
-    print(f'to {ex_consequent_list}')
+    ex_consequent_list : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), consequent.vars, consequent_list)
+    #print(f'from {antecedent_list}')
+    #print(f'to {ex_consequent_list}')
 
     result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
     return EclpImpliesResult(result.satisfiable, result.substitution)

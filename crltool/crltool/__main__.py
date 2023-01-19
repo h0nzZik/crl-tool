@@ -64,10 +64,10 @@ def create_argument_parser() -> argparse.ArgumentParser:
     
     subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
     subparser_check_implication.add_argument('--specification', required=True)
-    
+    subparser_check_implication.add_argument('--through-list', dest='through_list', action='store_true', default=False)
+
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
-    subparser_prove.add_argument('--through-list', action='store_true')
 
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
@@ -82,14 +82,14 @@ def create_argument_parser() -> argparse.ArgumentParser:
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
-    logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
+    logging.basicConfig(encoding='utf-8', level=logging.DEBUG, filename="crl-tool.log")
     if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
         print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")
         return
     kore_rpc_args : Tuple[str,...] = ()
     if args['kore_rpc_args'] is not None:
         kore_rpc_args = tuple(str.split(args['kore_rpc_args']))
-    #print(args)
+    print(args)
     with ReachabilitySystem(
         definition_dir=Path(args['definition']), 
         kore_rpc_args=kore_rpc_args, 
