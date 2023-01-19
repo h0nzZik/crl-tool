@@ -17,6 +17,7 @@ from typing import (
     List,
     Optional,
     Set,
+    Tuple,
     final,
 )
 
@@ -208,7 +209,8 @@ def extract_equalities_from_witness(expected_vars : Set[EVar], witness : Pattern
 def equalities_to_pattern(rs: ReachabilitySystem, eqls : Dict[EVar, Pattern]) -> Pattern:
     pairs : List[Tuple[EVar, Pattern]] = [(k, eqls[k]) for k in eqls]
     list_of_equalities : List[Pattern] = list(map(lambda p: Equals(rs.top_sort, p[0].sort, p[0], p[1]), pairs))
-    conj : Pattern = reduce(lambda a,b : And(rs.top_sort, a, b), list_of_equalities)
+    initial : Pattern = Top(rs.top_sort)
+    conj : Pattern = reduce(lambda a,b : And(rs.top_sort, a, b), list_of_equalities, initial=initial)
     return conj
 
 @final
@@ -247,7 +249,7 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         #   ((cfg, rho) |= antecedent.clp.lp.patterns[j]) ->
         #   ((cfg, rho) |= consequent.clp.lp.patterns[j]) .
         # ```
-        lhs : Pattern = antecedent.clp.lp.patterns[i]
+        lhs : Pattern = And(rs.top_sort, antecedent.clp.lp.patterns[i], antecedent.clp.constraint)
         free_evars_of_lhs : Set[EVar] = free_evars_of_pattern(lhs)
         equalities : Dict[EVar, Pattern] = extract_equalities_from_witness(set(consequent.vars), witness)
         print(f"Equalities: {equalities}")
