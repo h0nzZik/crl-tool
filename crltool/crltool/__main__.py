@@ -66,7 +66,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
     subparser_check_implication.add_argument('--specification', required=True)
     subparser_check_implication.add_argument('--through-list', dest='through_list', action='store_true', default=False)
-    subparser_check_implication.add_argument('--store-witness-to')
+    subparser_check_implication.add_argument('--store-witness-to', type=str, default=None)
 
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
@@ -91,6 +91,8 @@ def check_implication(rs: ReachabilitySystem, args) -> int:
         print(result.valid)
         if result.witness is not None:
             pretty_witness = rs.kprint.kore_to_pretty(result.witness)
+            if args['store_witness_to'] is None:
+                return 0
             with open(args['store_witness_to'], 'w') as fw:
                 fw.write(pretty_witness)
         return 0
@@ -132,7 +134,7 @@ def simplify(rs: ReachabilitySystem, args) -> int:
         with open(args['output_file'], 'w') as fw:
             fw.write(patsimpl0.text)
     return 0
-    
+
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())

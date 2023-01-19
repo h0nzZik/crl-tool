@@ -12,6 +12,7 @@ from itertools import (
 
 from typing import (
     Any,
+    Callable,
     Dict,
     Final,
     List,
@@ -24,6 +25,9 @@ from typing import (
 from pyk.kore.rpc import (
     ImpliesResult,
     KoreClient,
+    ExecuteResult,
+    StopReason,
+    State
 )
 
 from pyk.kore.syntax import (
@@ -277,7 +281,7 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         if (result.substitution is None):
             raise RuntimeError("Satisfable, but no witness was given")
         new_witness : Pattern = result.substitution
-        print(f"new_witness: {new_witness}")
+        #print(f"new_witness: {new_witness}")
         # Furthermore, (Inv1) still holds, and in addition, we have (2) (from the would-be contract of `implies`) saying that:
         # ```
         # |= antecedent.clp.lp.patterns[i] ---> exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ filtered_witness) /\ new_witness
@@ -478,3 +482,103 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
 
     result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
     return EclpImpliesResult(result.satisfiable, result.substitution)
+
+@final
+@dataclass
+class VerifySettings:
+    check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
+    user_cutpoints : List[ECLP]
+    max_depth : int
+
+@final
+@dataclass
+class VerifyResult:
+    valid : bool
+    final_states : Set[ECLP] # nonempty implies .valid == False
+
+
+# Phi - CLP (constrained list pattern)
+# Psi - ECLP (existentially-quantified CLP)
+# user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
+#   each one is a CLP. Note that they have not been proved to be valid;
+#   it is our task to verify them if we need to use them.
+# instantiated_cutpoints
+# flushed_cutpoints
+def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, consequent, instantiated_cutpoints = [], flushed_cutpoints = [], user_cutpoint_blacklist : Set[ECLP] =set(), depth : int = 0) -> VerifyResult:
+    arity : Final[int] = len(antecedent.clp.lp.patterns)
+    if (arity != len(consequent.clp.lp.patterns)):
+        raise ValueError("The antecedent and consequent have different arity.")
+
+    implies_result = settings.check_eclp_impl_valid(rs, antecedent, consequent)
+    if implies_result.valid:
+        return VerifyResult(True, set()) # build a proof object using subst, Conseq, Reflexivity
+    
+    # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
+    flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, settings.check_eclp_impl_valid(rs, antecedent, antecedentC)) for antecedentC in flushed_cutpoints]
+    # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
+    usable_flushed_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, result) for (antecedentC, result) in flushed_cutpoints_with_subst if result.valid]
+    if (len(list(usable_flushed_cutpoints)) > 0):
+        return VerifyResult(True, set()) # Conseq, Axiom
+
+    if (depth >= settings.max_depth):
+        return VerifyResult(False, set([antecedent]))
+
+    # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
+    user_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, settings.check_eclp_impl_valid(rs, antecedent, antecedentC)) for antecedentC in settings.user_cutpoints if not antecedentC in user_cutpoint_blacklist]
+    # The list of cutpoints matching the current 'state'
+    usable_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, subst) for (antecedentC, subst) in user_cutpoints_with_subst if subst is not None]
+    # If at least on succeeds, it is good.
+    for (antecedentC, subst) in usable_cutpoints:
+        # apply Conseq (using [subst]) to change the goal to [antecedentC]
+        # apply Circularity
+        # We filter [user_cutpoints] to prevent infinite loops
+        result = verify(
+            settings=settings,
+            rs=rs,
+            antecedent=antecedentC,
+            consequent=consequent,
+            instantiated_cutpoints=(instantiated_cutpoints + [antecedentC]),
+            flushed_cutpoints=flushed_cutpoints,
+            user_cutpoint_blacklist=user_cutpoint_blacklist.union((antecedentC,)),
+            depth=depth+1,
+        )
+        if result.valid:
+            return result
+    
+    for j in range(0, arity):
+        # TODO We can execute a component [j] until it partially matches the corresponding component of some circularity/axiom
+        step_result : ExecuteResult = rs.kcs.client.execute(pattern=antecedent.clp.lp.patterns[j], max_depth=1)
+        # Cannot rewrite the j'th component anymore
+        if step_result.reason == StopReason.STUCK:
+            continue
+
+        if step_result.next_states is None:
+            continue
+
+        nss : Tuple[State,...] = step_result.next_states
+        verify_result : VerifyResult = VerifyResult(True, set())
+
+        for ns in nss:
+            b = ns.kore
+            newantecedent : ECLP = antecedent
+            newantecedent.clp.lp.patterns[j] = b
+            # TODO:
+            # (1) prune inconsistent branches (since we have the toplevel constraint in antecedent/newantecedent)
+            # (2) propagate the constraints as locally as possible
+            #if not consistent(newantecedent):
+            #    continue
+
+            intermediate_result : VerifyResult = verify(
+                settings=settings,
+                rs=rs,
+                antecedent=newantecedent,
+                consequent=consequent,
+                instantiated_cutpoints=[],
+                flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints,
+                user_cutpoint_blacklist=user_cutpoint_blacklist,
+                depth=depth+1,
+            )
+            verify_result.valid = verify_result.valid and intermediate_result.valid
+            verify_result.final_states.update(intermediate_result.final_states)
+        return verify_result    
+    return VerifyResult(False, set([antecedent]))
