@@ -48,6 +48,9 @@ from .verify import (
     EclpImpliesResult,
     eclp_impl_valid,
     eclp_impl_valid_trough_lists,
+    VerifySettings,
+    VerifyResult,
+    verify,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -135,6 +138,19 @@ def simplify(rs: ReachabilitySystem, args) -> int:
             fw.write(patsimpl0.text)
     return 0
 
+def prove(rs: ReachabilitySystem, args) -> int:
+    with open(args['specification'], 'r') as spec_f:
+        claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
+        settings = VerifySettings(eclp_impl_valid, [], 10)
+        result : VerifyResult = verify(
+            rs=rs, 
+            settings=settings, 
+            antecedent=claim.antecedent, 
+            consequent=claim.consequent,
+        )
+        print(result)
+    return 0
+
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
@@ -154,7 +170,7 @@ def main() -> None:
         if args['command'] == 'check-implication':
             retval = check_implication(rs, args)
         elif args['command'] == 'prove':
-            print("Dummy proving...")
+            retval = prove(rs, args)
         elif args['command'] == 'check-implication-directly':
             retval = check_implication_directly(rs, args)
         elif args['command'] == 'simplify':
