@@ -18,11 +18,11 @@ from typing import (
 @final
 @dataclass
 class LP:
-    patterns: List[Pattern]
+    patterns: Tuple[Pattern,...]
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'LP':
-        return LP(list(map(Pattern.from_dict, dct['patterns'])))
+        return LP(tuple(map(Pattern.from_dict, dct['patterns'])))
 
     @property
     def dict(self) -> Dict[str, Any]:
@@ -46,16 +46,16 @@ class CLP:
 @final
 @dataclass
 class ECLP:
-    vars: List[EVar]
+    vars: Tuple[EVar,...]
     clp: CLP
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'ECLP':
-        return ECLP(list(map(EVar.from_dict, dct['vars'])), CLP.from_dict(dct['clp']))
+        return ECLP(tuple(map(EVar.from_dict, dct['vars'])), CLP.from_dict(dct['clp']))
     
     @property
     def dict(self) -> Dict[str, Any]:
-        return {'vars': list(map(lambda v: v.dict, self.vars)), 'clp': self.clp.dict}
+        return {'vars': tuple(map(lambda v: v.dict, self.vars)), 'clp': self.clp.dict}
 
 @final
 @dataclass
