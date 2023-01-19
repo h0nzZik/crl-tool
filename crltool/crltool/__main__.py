@@ -159,7 +159,7 @@ def prove(rs: ReachabilitySystem, args) -> int:
         )
         print(f'proved: {result.proved}')
         print('remaining states:')
-        for s,i in zip(list(map(lambda eclp: eclp_to_pretty(rs, eclp), result.final_states)), range(len(result.final_states))):
+        for s,i in zip(list(map(lambda fs: (eclp_to_pretty(rs, fs[0]), fs[1]), result.final_states)), range(len(result.final_states))):
             print(f'{i}: ', end='')
             pprint.pprint(s)
 

@@ -494,8 +494,7 @@ class VerifySettings:
 @dataclass
 class VerifyResult:
     proved : bool
-    final_states : List[ECLP] # nonempty implies .proved == False
-    depth : int
+    final_states : List[Tuple[ECLP, int]]
 
 
 # Phi - CLP (constrained list pattern)
@@ -512,17 +511,17 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
 
     implies_result = settings.check_eclp_impl_valid(rs, antecedent, consequent)
     if implies_result.valid:
-        return VerifyResult(True, [], depth) # build a proof object using subst, Conseq, Reflexivity
+        return VerifyResult(True, [(antecedent, depth)]) # build a proof object using subst, Conseq, Reflexivity
     
     # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
     flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, settings.check_eclp_impl_valid(rs, antecedent, antecedentC)) for antecedentC in flushed_cutpoints]
     # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
     usable_flushed_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, result) for (antecedentC, result) in flushed_cutpoints_with_subst if result.valid]
     if (len(list(usable_flushed_cutpoints)) > 0):
-        return VerifyResult(True, [], depth) # Conseq, Axiom
+        return VerifyResult(True, [(antecedent, depth)]) # Conseq, Axiom
 
     if (depth >= settings.max_depth):
-        return VerifyResult(False, [antecedent], depth)
+        return VerifyResult(False, [(antecedent, depth)])
 
     # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
     user_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, settings.check_eclp_impl_valid(rs, antecedent, antecedentC)) for antecedentC in settings.user_cutpoints if not antecedentC in user_cutpoint_blacklist]
@@ -546,25 +545,35 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
         if result.proved:
             return result
     
+    list_of_final_states : List[Tuple[ECLP, int]] = []
     for j in range(0, arity):
+        print(f"j: {j}")
+        curr_depth = depth
         # TODO We can execute a component [j] until it partially matches the corresponding component of some circularity/axiom
-        step_result : ExecuteResult = rs.kcs.client.execute(pattern=antecedent.clp.lp.patterns[j], max_depth=1)
+        stop_reason : StopReason = StopReason.DEPTH_BOUND
+        while stop_reason == StopReason.DEPTH_BOUND and curr_depth < settings.max_depth:
+            step_result : ExecuteResult = rs.kcs.client.execute(pattern=antecedent.clp.lp.patterns[j], max_depth=1)
+            stop_reason = step_result.reason
+            if stop_reason == StopReason.DEPTH_BOUND:
+                curr_depth = curr_depth + 1
+
         # Cannot rewrite the j'th component anymore
         if step_result.reason == StopReason.STUCK:
             continue
 
-        if step_result.next_states is None:
+        elif step_result.reason == StopReason.DEPTH_BOUND:
+            nss : Tuple[State,...] = (step_result.state,)
+        elif step_result.reason == StopReason.BRANCHING and step_result.next_states is not None:
+            nss = step_result.next_states
             continue
 
-        nss : Tuple[State,...] = step_result.next_states
-        verify_result : VerifyResult = VerifyResult(True, [], depth)
+        #print(f'next states: {nss}')
+        verify_result : VerifyResult = VerifyResult(True, [])
 
         for ns in nss:
             b = ns.kore
             newantecedent : ECLP = antecedent
-            tmp = list(newantecedent.clp.lp.patterns)
-            tmp[j] = b
-            newantecedent.clp.lp.patterns = tuple(tmp)
+            newantecedent.clp.lp.patterns[j] = b
             # TODO:
             # (1) prune inconsistent branches (since we have the toplevel constraint in antecedent/newantecedent)
             # (2) propagate the constraints as locally as possible
@@ -579,11 +588,16 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
                 instantiated_cutpoints=[],
                 flushed_cutpoints=instantiated_cutpoints+flushed_cutpoints,
                 user_cutpoint_blacklist=user_cutpoint_blacklist,
-                depth=depth+1,
+                depth=curr_depth,
             )
             verify_result.proved = verify_result.proved and intermediate_result.proved
             verify_result.final_states = verify_result.final_states + intermediate_result.final_states
-        if verify_result.proved == False:
+        if verify_result.proved == True:
             return verify_result
+
+        list_of_final_states = list_of_final_states + verify_result.final_states
+    
     # TODO we should do something here
-    return VerifyResult(False, [antecedent], depth)
+    vr = VerifyResult(False, list_of_final_states)
+
+    return vr
