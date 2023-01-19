@@ -46,6 +46,7 @@ from .ReachabilitySystem import ReachabilitySystem
 from .verify import (
     EclpImpliesResult,
     eclp_impl_valid,
+    eclp_impl_valid_trough_lists,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
+    subparser_prove.add_argument('--through-list', action='store_true')
 
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
@@ -96,7 +98,10 @@ def main() -> None:
         if args['command'] == 'check-implication':
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
-            result : EclpImpliesResult = eclp_impl_valid(rs, claim.antecedent, claim.consequent)
+            if args['through_list']:
+                result : EclpImpliesResult = eclp_impl_valid_trough_lists(rs, claim.antecedent, claim.consequent)
+            else:
+                result = eclp_impl_valid(rs, claim.antecedent, claim.consequent)    
             print(f"Implication result: {result}")
             if result.witness is not None:
                 print(rs.kprint.kore_to_pretty(result.witness))

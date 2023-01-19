@@ -460,3 +460,20 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
     
     return EclpImpliesResult(True, witness)
 
+def clp_to_list(rs : ReachabilitySystem, clp : CLP) -> Pattern:
+    sortList = SortApp('SortList', ())
+    list_items : List[Pattern] = list(map(lambda p: App('LblListItem', (sortList,), (App('Inj', (rs.top_sort, SortApp('SortKItem', ()))),)), clp.lp.patterns))
+    resulting_list : Pattern = reduce(lambda p, q: App("Lbl'Unds'List'Unds'", (sortList,), (p, q)), list_items, App("Lbl'Stop'List", (sortList,)))
+    constrained = And(rs.top_sort, resulting_list, clp.constraint)
+    return constrained
+
+
+def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> EclpImpliesResult:
+    antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
+    consequent_list : Pattern = clp_to_list(rs, consequent.clp)
+    ex_consequent_list : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, consequent_list)
+    print(f'from {antecedent_list}')
+    print(f'to {ex_consequent_list}')
+
+    result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
+    return EclpImpliesResult(result.satisfiable, result.substitution)

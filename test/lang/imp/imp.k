@@ -42,7 +42,9 @@ module IMP
 
   syntax Bool ::= compareCells(KCell, KCell) [function]
 
-  rule compareCells(A, B) => A ==K B
+  //rule compareCells(A, B) => A ==K B
+
+  rule [myrule]: compareCells(A, B) => (ListItem(A) ListItem(A)) ==K (ListItem(B) ListItem(B))
 
 // AExp
   rule <k> X:Id => I ...</k> <state>... X |-> I ...</state>
