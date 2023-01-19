@@ -150,13 +150,12 @@ def eclp_to_pretty(rs: ReachabilitySystem, eclp: ECLP):
 def prove(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
-        settings = VerifySettings(eclp_impl_valid_trough_lists, [], 10)
+        settings = VerifySettings(eclp_impl_valid_trough_lists, [], int(args['depth']))
         result : VerifyResult = verify(
             rs=rs, 
             settings=settings, 
             antecedent=claim.antecedent, 
             consequent=claim.consequent,
-            depth=int(args['depth']),
         )
         print(f'proved: {result.proved}')
         print('remaining states:')

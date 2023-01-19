@@ -511,6 +511,7 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
 
     implies_result = settings.check_eclp_impl_valid(rs, antecedent, consequent)
     if implies_result.valid:
+        print(f'Antecedent implies consequent at depth {depth}: {antecedent} -> {consequent}')
         return VerifyResult(True, [(antecedent, depth)]) # build a proof object using subst, Conseq, Reflexivity
     
     # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
@@ -529,6 +530,7 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
     usable_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, subst) for (antecedentC, subst) in user_cutpoints_with_subst if subst is not None]
     # If at least on succeeds, it is good.
     for (antecedentC, subst) in usable_cutpoints:
+        print(f'using cutpoint {antecedentC}')
         # apply Conseq (using [subst]) to change the goal to [antecedentC]
         # apply Circularity
         # We filter [user_cutpoints] to prevent infinite loops
@@ -548,30 +550,34 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
     list_of_final_states : List[Tuple[ECLP, int]] = []
     for j in range(0, arity):
         print(f"j: {j}")
-        curr_depth = depth
         # TODO We can execute a component [j] until it partially matches the corresponding component of some circularity/axiom
+        iterations = 0
         stop_reason : StopReason = StopReason.DEPTH_BOUND
-        while stop_reason == StopReason.DEPTH_BOUND and curr_depth < settings.max_depth:
-            step_result : ExecuteResult = rs.kcs.client.execute(pattern=antecedent.clp.lp.patterns[j], max_depth=1)
+        pattern_j : Pattern = antecedent.clp.lp.patterns[j]
+        while stop_reason == StopReason.DEPTH_BOUND and depth + iterations < settings.max_depth:
+            step_result : ExecuteResult = rs.kcs.client.execute(pattern=pattern_j, max_depth=1)
             stop_reason = step_result.reason
             if stop_reason == StopReason.DEPTH_BOUND:
-                curr_depth = curr_depth + 1
+                iterations = iterations + 1
+                pattern_j = step_result.state.kore
+        print(f'Iterations: {iterations}')
+        curr_depth : int = depth + iterations
 
         # Cannot rewrite the j'th component anymore
-        if step_result.reason == StopReason.STUCK:
-            continue
-
-        elif step_result.reason == StopReason.DEPTH_BOUND:
-            nss : Tuple[State,...] = (step_result.state,)
+        if step_result.reason == StopReason.DEPTH_BOUND:
+            bs : List[Pattern] = [pattern_j]
         elif step_result.reason == StopReason.BRANCHING and step_result.next_states is not None:
-            nss = step_result.next_states
+            bs = list(map(lambda s: s.kore, step_result.next_states))
+        elif step_result.reason == StopReason.STUCK and iterations > 0:
+            bs = [pattern_j]
+        else:
+            print(f'Continuing: result.reason == {step_result.reason}, iterations == {iterations}')
             continue
 
-        #print(f'next states: {nss}')
+        print(f'next states: {len(bs)}')
         verify_result : VerifyResult = VerifyResult(True, [])
 
-        for ns in nss:
-            b = ns.kore
+        for b in bs:
             newantecedent : ECLP = antecedent
             newantecedent.clp.lp.patterns[j] = b
             # TODO:
