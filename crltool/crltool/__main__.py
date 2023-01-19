@@ -68,7 +68,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     
     subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
     subparser_check_implication.add_argument('--specification', required=True)
-    subparser_check_implication.add_argument('--through-list', dest='through_list', action='store_true', default=False)
+    subparser_check_implication.add_argument('--iteratively', action='store_true', default=False)
     subparser_check_implication.add_argument('--store-witness-to', type=str, default=None)
 
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
@@ -87,10 +87,10 @@ def create_argument_parser() -> argparse.ArgumentParser:
 def check_implication(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim = Claim.from_dict(json.loads(spec_f.read()))
-        if args['through_list']:
-            result : EclpImpliesResult = eclp_impl_valid_trough_lists(rs, claim.antecedent, claim.consequent)
+        if args['iteratively']:
+            result : EclpImpliesResult = eclp_impl_valid(rs, claim.antecedent, claim.consequent)    
         else:
-            result = eclp_impl_valid(rs, claim.antecedent, claim.consequent)    
+            result = eclp_impl_valid_trough_lists(rs, claim.antecedent, claim.consequent)
         print(result.valid)
         if result.witness is not None:
             pretty_witness = rs.kprint.kore_to_pretty(result.witness)
