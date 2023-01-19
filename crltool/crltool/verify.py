@@ -493,8 +493,8 @@ class VerifySettings:
 @final
 @dataclass
 class VerifyResult:
-    valid : bool
-    final_states : List[ECLP] # nonempty implies .valid == False
+    proved : bool
+    final_states : List[ECLP] # nonempty implies .proved == False
     depth : int
 
 
@@ -543,7 +543,7 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
             user_cutpoint_blacklist=user_cutpoint_blacklist.union((antecedentC,)),
             depth=depth+1,
         )
-        if result.valid:
+        if result.proved:
             return result
     
     for j in range(0, arity):
@@ -581,9 +581,9 @@ def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, 
                 user_cutpoint_blacklist=user_cutpoint_blacklist,
                 depth=depth+1,
             )
-            verify_result.valid = verify_result.valid and intermediate_result.valid
+            verify_result.proved = verify_result.proved and intermediate_result.proved
             verify_result.final_states = verify_result.final_states + intermediate_result.final_states
-        if verify_result.valid == False:
+        if verify_result.proved == False:
             return verify_result
     # TODO we should do something here
     return VerifyResult(False, [antecedent], depth)

@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import sys
+import pprint
 
 from pathlib import Path
 
@@ -139,6 +140,12 @@ def simplify(rs: ReachabilitySystem, args) -> int:
             fw.write(patsimpl0.text)
     return 0
 
+def eclp_to_pretty(rs: ReachabilitySystem, eclp: ECLP):
+    patterns = list(map(rs.kprint.kore_to_pretty, eclp.clp.lp.patterns))
+    constraint = rs.kprint.kore_to_pretty(eclp.clp.constraint)
+    return {'vars': eclp.vars, 'patterns': patterns, 'constraint': constraint}
+    #return f'exists {eclp.vars} such that {patterns} /\ {constraint}'
+
 def prove(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
@@ -150,7 +157,12 @@ def prove(rs: ReachabilitySystem, args) -> int:
             consequent=claim.consequent,
             depth=int(args['depth']),
         )
-        print(result)
+        print(f'proved: {result.proved}')
+        print('remaining states:')
+        for s,i in zip(list(map(lambda eclp: eclp_to_pretty(rs, eclp), result.final_states)), range(len(result.final_states))):
+            print(f'{i}: ', end='')
+            pprint.pprint(s)
+
     return 0
 
 def main() -> None:
