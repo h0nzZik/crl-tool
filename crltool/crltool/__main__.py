@@ -14,6 +14,7 @@ from pyk.kore.syntax import (
     Pattern,
     Top,
     Not,
+    Implies,
 )
 
 from pyk.kore.parser import (
@@ -47,7 +48,8 @@ from .kore_utils import (
 from .ReachabilitySystem import ReachabilitySystem
 
 from .verify import (
-    eclp_impl_to_pattern
+    EclpImpliesResult,
+    eclp_impl_valid,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -65,8 +67,6 @@ def create_argument_parser() -> argparse.ArgumentParser:
     
     subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
     subparser_check_implication.add_argument('--specification', required=True)
-    subparser_check_implication.add_argument('--query-file', required=True)
-    subparser_check_implication.add_argument('--output-file', required=True)
     
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
@@ -74,7 +74,6 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
     subparser_simplify.add_argument('--output-file', required=True)
-    subparser_simplify.add_argument('--try-impl', type=bool, default=False)
 
     subparser_check_impl_direct = subparsers.add_parser('check-implication-directly', help='Simplify a pattern')
     subparser_check_impl_direct.add_argument('--hackit', type=bool, default=False)
@@ -101,18 +100,9 @@ def main() -> None:
         if args['command'] == 'check-implication':
             with open(args['specification'], 'r') as spec_f:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
-            pat0 = eclp_impl_to_pattern(rs, claim.antecedent, claim.consequent)
-            #pat = Not(rs.top_sort, pat0)
-            pat = pat0
-            print(pat)
-            with open(args['query_file'], 'w') as fw:
-                fw.write(pat.text)
-            patsimpl : Pattern = rs.kcs.client.simplify(pat)
-            print(patsimpl.text)
-            with open(args['output_file'], 'w') as fw:
-                fw.write(patsimpl.text)
-            #impl_result = rs.kcs.client.implies(Top(rs.top_sort), pat)
-            #print(impl_result)
+            result : EclpImpliesResult = eclp_impl_valid(rs, claim.antecedent, claim.consequent)
+            print(f"Implication result: {result}")
+
         elif args['command'] == 'prove':
             print("Dummy proving...")
         elif args['command'] == 'check-implication-directly':
@@ -121,32 +111,27 @@ def main() -> None:
             kp = KPrint(args['definition'])                
             print('Input')
             print(kp.kore_to_pretty(pat))
-            if args['hackit']:
-                kprove = KProve(definition_dir=args['definition'], port=3001, use_directory=Path("./mytemp"))
-                src = CTerm(kp.kore_to_kast(pat.left))
-                print(src)
-                tgt = CTerm(kp.kore_to_kast(pat.right))
-                print(tgt)
-                result = kprove.prove_cterm(claim_id='my-claim', init_cterm=src, target_cterm=tgt, depth=0, allow_zero_step=True)
-                print(result)
-                pass
+            match pat:
+                case Implies(_, l, r):
+                    lhs, rhs = l, r
+                case _:
+                    raise ValueError(f"Expected implication, but {pat} was given")
+            impl_result = rs.kcs.client.implies(lhs, rhs)
+            print('Simplified')
+            print(kp.kore_to_pretty(impl_result.implication))
+            #print(impl_result.implication.text)
+            if (impl_result.satisfiable):
+                print("Satisfiable")
             else:
-                impl_result = rs.kcs.client.implies(pat.left, pat.right)
-                print('Simplified')
-                print(kp.kore_to_pretty(impl_result.implication))
-                #print(impl_result.implication.text)
-                if (impl_result.satisfiable):
-                    print("Satisfiable")
-                else:
-                    print("Unsatisfiable")
-                if impl_result.substitution is not None:
-                    print("Substitution:")
-                    print(kp.kore_to_pretty(impl_result.substitution))
-                    #print(impl_result.substitution.text)
-                if impl_result.predicate is not None:
-                    print("Predicate:")
-                    print(kp.kore_to_pretty(impl_result.predicate))
-                    #print(impl_result.predicate.text)
+                print("Unsatisfiable")
+            if impl_result.substitution is not None:
+                print("Substitution:")
+                print(kp.kore_to_pretty(impl_result.substitution))
+                #print(impl_result.substitution.text)
+            if impl_result.predicate is not None:
+                print("Predicate:")
+                print(kp.kore_to_pretty(impl_result.predicate))
+                #print(impl_result.predicate.text)
             
         elif args['command'] == 'simplify':
             with open(args['pattern'], 'r') as fr:
@@ -155,9 +140,6 @@ def main() -> None:
             print(patsimpl0.text)
             with open(args['output_file'], 'w') as fw:
                 fw.write(patsimpl0.text)
-            if args['try_impl']:
-                impl_result = rs.kcs.client.implies(pat.left, pat.right)
-                print(impl_result)
                 
 
         

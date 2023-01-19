@@ -1,5 +1,7 @@
 import logging
 
+from dataclasses import dataclass
+
 from functools import (
     reduce
 )
@@ -14,6 +16,7 @@ from typing import (
     List,
     Optional,
     Set,
+    final,
 )
 
 from pyk.kore.rpc import (
@@ -177,6 +180,14 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
     #result = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, impl)
     #return result
 
+
+@final
+@dataclass(frozen=True)
+class EclpImpliesResult:
+    valid: bool
+    witness: Optional[Pattern]
+
+
 # Assumes (A1) that antecedent does not contain (free or bound) variables from consequent.vars.
 # This is wlog, since one can alpha-rename the bound variables of the consequent.
 #
@@ -186,7 +197,7 @@ def eclp_impl_to_pattern(rs: ReachabilitySystem, antecedent : ECLP, consequent: 
 #   (rho |= antecedent.clp.constraint /\ forall i in range(0, k), (cfgs[i], rho) |= antecedent.clp.lp.patterns[i]) ->
 #   exists (rho2 : Valuation), (rho2 is the same as rho except on consequent.vars) /\
 #   (rho2 |= consequent.clp.constraint /\ forall i in range(0, k), (cfgs[i], rho2) |= consequent.clp.lp.patterns[i]).
-def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> bool:
+def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> EclpImpliesResult:
     arity = len(antecedent.clp.lp.patterns)
     if (arity != len(consequent.clp.lp.patterns)):
         raise ValueError("The antecedent and consequent have different arity.")
@@ -208,12 +219,14 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
         #   ((cfg, rho) |= consequent.clp.lp.patterns[j]) .
         # ```
         lhs : Pattern = antecedent.clp.lp.patterns[i]
-        rhs : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars,
-            And(rs.top_sort, consequent.clp.lp.patterns[i], And(rs.top_sort, consequent.clp.constraint, witness)))
+        rhs_body : Pattern = And(rs.top_sort, consequent.clp.lp.patterns[i], And(rs.top_sort, consequent.clp.constraint, witness))
+        rhs : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, rhs_body)
         result : ImpliesResult = rs.kcs.client.implies(lhs, rhs)
         if result.satisfiable != True:
-            return False
-        new_witness = result.substitution
+            return EclpImpliesResult(False, None)
+        if (result.substitution is None):
+            raise RuntimeError("Satisfable, but no witness was given")
+        new_witness : Pattern = result.substitution
         # Furthermore, (Inv1) still holds, and in addition, we have (2) (from the would-be contract of `implies`) saying that:
         # ```
         # |= antecedent.clp.lp.patterns[i] ---> exists \vec{consequent.vars}, (consequent.clp.lp.patterns[i] /\ consequent.clp.constraint /\ witness) /\ new_witness
@@ -344,5 +357,5 @@ def eclp_impl_valid(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP)
     #if result2.satisfiable != True:
     #    return False
     
-    return True
+    return EclpImpliesResult(True, witness)
 
