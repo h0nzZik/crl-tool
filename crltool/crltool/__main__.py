@@ -13,6 +13,7 @@ from typing import (
 )
 
 from pyk.kore.syntax import (
+    And,
     Pattern,
     Top,
     Not,
@@ -159,9 +160,15 @@ def prove(rs: ReachabilitySystem, args) -> int:
         )
         print(f'proved: {result.proved}')
         print('remaining states:')
-        for s,i in zip(list(map(lambda fs: (eclp_to_pretty(rs, fs[0]), fs[1]), result.final_states)), range(len(result.final_states))):
-            print(f'{i}: ', end='')
-            pprint.pprint(s)
+        for s,i in zip(result.final_states, range(len(result.final_states))):
+            print(f'Proof state {i}: ')
+            depth : int = s[1]
+            eclp : ECLP = s[0]
+            print('ECLP')
+            patterns = list(map(lambda p: (rs.kprint.kore_to_pretty(p)), eclp.clp.lp.patterns))
+            pprint.pprint(patterns)
+            print('Constraint')
+            pprint.pprint(rs.kprint.kore_to_pretty(eclp.clp.constraint))
 
     return 0
 
