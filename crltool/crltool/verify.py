@@ -210,7 +210,7 @@ def equalities_to_pattern(rs: ReachabilitySystem, eqls : Dict[EVar, Pattern]) ->
     pairs : List[Tuple[EVar, Pattern]] = [(k, eqls[k]) for k in eqls]
     list_of_equalities : List[Pattern] = list(map(lambda p: Equals(rs.top_sort, p[0].sort, p[0], p[1]), pairs))
     initial : Pattern = Top(rs.top_sort)
-    conj : Pattern = reduce(lambda a,b : And(rs.top_sort, a, b), list_of_equalities, initial=initial)
+    conj : Pattern = reduce(lambda a,b : And(rs.top_sort, a, b), list_of_equalities, initial)
     return conj
 
 @final

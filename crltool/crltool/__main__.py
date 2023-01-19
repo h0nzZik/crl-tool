@@ -98,6 +98,8 @@ def main() -> None:
                 claim = Claim.from_dict(json.loads(spec_f.read()))
             result : EclpImpliesResult = eclp_impl_valid(rs, claim.antecedent, claim.consequent)
             print(f"Implication result: {result}")
+            if result.witness is not None:
+                print(rs.kprint.kore_to_pretty(result.witness))
 
         elif args['command'] == 'prove':
             print("Dummy proving...")
