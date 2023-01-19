@@ -21,10 +21,6 @@ from pyk.kore.parser import (
     KoreParser
 )
 
-from pyk.ktool.kprint import (
-    KPrint
-)
-
 from pyk.ktool.kprove import (
     KProve
 )
@@ -108,9 +104,9 @@ def main() -> None:
         elif args['command'] == 'check-implication-directly':
             with open(args['pattern'], 'r') as fr:
                 pat = KoreParser(fr.read()).pattern()
-            kp = KPrint(args['definition'])                
+            
             print('Input')
-            print(kp.kore_to_pretty(pat))
+            print(rs.kprint.kore_to_pretty(pat))
             match pat:
                 case Implies(_, l, r):
                     lhs, rhs = l, r
@@ -118,7 +114,7 @@ def main() -> None:
                     raise ValueError(f"Expected implication, but {pat} was given")
             impl_result = rs.kcs.client.implies(lhs, rhs)
             print('Simplified')
-            print(kp.kore_to_pretty(impl_result.implication))
+            print(rs.kprint.kore_to_pretty(impl_result.implication))
             #print(impl_result.implication.text)
             if (impl_result.satisfiable):
                 print("Satisfiable")
@@ -126,11 +122,11 @@ def main() -> None:
                 print("Unsatisfiable")
             if impl_result.substitution is not None:
                 print("Substitution:")
-                print(kp.kore_to_pretty(impl_result.substitution))
+                print(rs.kprint.kore_to_pretty(impl_result.substitution))
                 #print(impl_result.substitution.text)
             if impl_result.predicate is not None:
                 print("Predicate:")
-                print(kp.kore_to_pretty(impl_result.predicate))
+                print(rs.kprint.kore_to_pretty(impl_result.predicate))
                 #print(impl_result.predicate.text)
             
         elif args['command'] == 'simplify':

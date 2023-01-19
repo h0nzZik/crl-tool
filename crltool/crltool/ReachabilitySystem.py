@@ -9,6 +9,10 @@ from typing import (
     IO,
 )
 
+from pyk.ktool.kprint import (
+    KPrint
+)
+
 from pyk.kore.rpc import (
     KoreServer,
     KoreClient
@@ -70,6 +74,7 @@ class ReachabilitySystem:
     kcs: KoreClientServer
     definition: Definition
     main_module_name: str
+    kprint : KPrint
 
     def __init__(self,
         definition_dir: Path,
@@ -88,6 +93,7 @@ class ReachabilitySystem:
             while(kparser._la().type != KoreToken.Type.EOF):
                 print(kparser._la.consume().text, end='')
             raise
+        self.kprint = KPrint(definition_dir)
         self.kcs = KoreClientServer(
             definition_dir=definition_dir,
             main_module_name=self.main_module_name,
