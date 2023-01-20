@@ -7,3 +7,4 @@ while(1 <= x) {
     x = x + (-1);
     y = y + 1;
 }
+{"args": [{"sort": {"args": [], "name": "SortId", "tag": "SortApp"}, "tag": "DV", "value": "x"}], "name": "inj", "sorts": [{"args": [], "name": "SortId", "tag": "SortApp"}, {"args": [], "name": "SortAExp", "tag": "SortApp"}], "tag": "App"}
