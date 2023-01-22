@@ -582,7 +582,7 @@ class Verifier:
         self.arity = arity
         self.consequent = consequent
         self.last_goal_id = 1
-        self.entries = ((self.settings.max_depth+1)**arity)*[VerifyEntry(None)]
+        self.entries = [VerifyEntry(None) for _ in range((self.settings.max_depth+1)**arity)]
         idx0 = self.serialize_index(self.arity * [0])
         _LOGGER.debug(f'idx0: {idx0}')
         self.entries[idx0].question = VerifyQuestion(
@@ -597,16 +597,17 @@ class Verifier:
         )
 
     def serialize_index(self, idx : List[int]) -> int:
-        return reduce(lambda i, r: r*self.settings.max_depth + i, idx, 0)
+        r = reduce(lambda r, i: r*self.settings.max_depth + i, idx, 0)
+        #_LOGGER.debug(f"serialize({idx}) = {r}")
+        return r
 
     def fresh_goal_id(self) -> int:
         self.last_goal_id = self.last_goal_id + 1
         return self.last_goal_id
 
     def verify(self) -> VerifyResult:
-        _LOGGER.debug(f'Range: {list(vecrange(self.arity, self.settings.max_depth))}')
         for idx in vecrange(self.arity, self.settings.max_depth):
-            _LOGGER.debug(f"idx: {idx}")
+            #_LOGGER.debug(f"idx: {idx}")
             if self.advance_proof(idx):
                 return VerifyResult(proved=True, final_states=[])
         return VerifyResult(proved=False, final_states=[]) # TODO: extract the final_states
@@ -614,22 +615,26 @@ class Verifier:
     # Takes an index of a proof state in the hypercube
     # and tries to advance the proof state, possibly generating more entries in the hypercube
     def advance_proof(self, idx: List[int]) -> bool:
+        _LOGGER.info(f"advance_proof on {idx}")
         q : Optional[VerifyQuestion] = self.entries[self.serialize_index(idx)].question
         if q is None:
             return False
             #raise RuntimeError(f"advance_proof got no question on index {idx}")
         
         if not q.is_worth_trying():
+            _LOGGER.info(f"{idx} not worth trying")
             return False
         
         # Try every possible direction
         for j in range(0, self.arity):
-            idx_of_next : List[int] = idx
+            idx_of_next : List[int] = idx.copy()
             idx_of_next[j] = idx_of_next[j] + 1
+            _LOGGER.debug(f"From {idx} to {idx_of_next}")
             serialized_idx_of_next = self.serialize_index(idx_of_next)
             # We have already computed this, probably from a different side, so do not compute it again.
             # This may include situation when `not self.entries[serialized_idx_of_next].question.is_worth_trying()`
-            if (q2 := self.entries[serialized_idx_of_next].question) is not None:
+            q2 = self.entries[serialized_idx_of_next].question
+            if q2 is not None:
                 continue
             next_q : Optional[VerifyQuestion] = self.advance_proof_in_direction(idx=idx,q=q, j=j)
             if next_q is None:
@@ -719,7 +724,7 @@ class Verifier:
 
             if step_result.reason == StopReason.DEPTH_BOUND:
                 # We made a step, so we can flush the circularities/instantiated cutpoints
-                newantecedent : ECLP = goal.antecedent
+                newantecedent : ECLP = goal.antecedent.copy()
                 newantecedent.clp.lp.patterns[j] = step_result.state.kore
                 new_q.goals.append(VerifyGoal(
                     goal_id=self.fresh_goal_id(),
@@ -736,7 +741,7 @@ class Verifier:
                 _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: branching ({len(step_result.next_states)})")
                 bs = list(map(lambda s: s.kore, step_result.next_states))
                 for b in bs:
-                    newantecedent = goal.antecedent
+                    newantecedent = goal.antecedent.copy()
                     newantecedent.clp.lp.patterns[j] = b
                     # TODO:
                     # (1) prune inconsistent branches (since we have the toplevel constraint in antecedent/newantecedent)

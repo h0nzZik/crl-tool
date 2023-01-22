@@ -27,6 +27,9 @@ class LP:
     @property
     def dict(self) -> Dict[str, Any]:
         return {'patterns': list(map(lambda p: p.dict, self.patterns))}
+    
+    def copy(self):
+        return LP(self.patterns.copy())
 
 
 @final
@@ -42,6 +45,9 @@ class CLP:
     @property
     def dict(self) -> Dict[str, Any]:
         return {'lp': self.lp.dict, 'constraint': self.constraint.dict}
+    
+    def copy(self):
+        return CLP(self.lp.copy(), self.constraint)
 
 @final
 @dataclass
@@ -56,6 +62,9 @@ class ECLP:
     @property
     def dict(self) -> Dict[str, Any]:
         return {'vars': list(map(lambda v: v.dict, self.vars)), 'clp': self.clp.dict}
+    
+    def copy(self):
+        return ECLP(self.vars.copy(), self.clp.copy())
 
 @final
 @dataclass
