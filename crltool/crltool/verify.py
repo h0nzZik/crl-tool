@@ -552,7 +552,7 @@ class VerifyQuestion:
     # We store such value because one entry in the hypercube can be reached from multiple sides,
     # and we do not want to 
     goals : List[Union[VerifyGoal, UnsolvableGoal]]
-    source_of_question : Optional[VerifyQuestion] # index, or nothing for initial
+    source_of_question : Optional[List[int]] # index, or nothing for initial
 
     def is_worth_trying(self) -> bool:
         return all(map(lambda g: g is not UnsolvableGoal, self.goals))
@@ -560,6 +560,12 @@ class VerifyQuestion:
 @dataclass
 class VerifyEntry:
     question : Optional[VerifyQuestion]
+
+@final
+@dataclass
+class VerifyResult:
+    proved : bool
+    final_states : List[Tuple[ECLP, int]]
 
 @dataclass
 class Verifier:
@@ -595,11 +601,11 @@ class Verifier:
         self.last_goal_id = self.last_goal_id + 1
         return self.last_goal_id
 
-    def verify(self) -> bool:
+    def verify(self) -> VerifyResult:
         for idx in vecrange(self.arity, self.settings.max_depth):
             if self.advance_proof(idx):
-                return True
-        return False
+                return VerifyResult(proved=True, final_states=[])
+        return VerifyResult(proved=False, final_states=[]) # TODO: extract the final_states
     
     # Takes an index of a proof state in the hypercube
     # and tries to advance the proof state, possibly generating more entries in the hypercube
@@ -620,7 +626,6 @@ class Verifier:
             # We have already computed this, probably from a different side, so do not compute it again.
             # This may include situation when `not self.entries[serialized_idx_of_next].question.is_worth_trying()`
             if (q2 := self.entries[serialized_idx_of_next].question) is not None:
-                assert(q2.source_of_question is not None)
                 continue
             next_q : Optional[VerifyQuestion] = self.advance_proof_in_direction(idx=idx,q=q, j=j)
             if next_q is None:
@@ -634,7 +639,7 @@ class Verifier:
         pass
 
     def advance_proof_in_direction(self, idx: List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
-        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=q)
+        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx)
         for goal in q.goals:
             if not isinstance(goal, VerifyGoal):
                 raise RuntimeError()
@@ -745,11 +750,6 @@ class Verifier:
             raise RuntimeError()
         return new_q
 
-@final
-@dataclass
-class VerifyResult:
-    proved : bool
-    final_states : List[Tuple[ECLP, int]]
 
 
 # Phi - CLP (constrained list pattern)
@@ -759,116 +759,12 @@ class VerifyResult:
 #   it is our task to verify them if we need to use them.
 # instantiated_cutpoints
 # flushed_cutpoints
-def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, consequent, instantiated_cutpoints = [], flushed_cutpoints = [], user_cutpoint_blacklist : Set[ECLP] =set(), depth : int = 0) -> VerifyResult:
-    arity : Final[int] = len(antecedent.clp.lp.patterns)
-    if (arity != len(consequent.clp.lp.patterns)):
-        raise ValueError("The antecedent and consequent have different arity.")
-
-    implies_result = settings.check_eclp_impl_valid(rs, antecedent, consequent)
-    if implies_result.valid:
-        print(f'Antecedent implies consequent at depth {depth}: {antecedent} -> {consequent}')
-        return VerifyResult(True, [(antecedent, depth)]) # build a proof object using subst, Conseq, Reflexivity
-    
-    # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
-    flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, settings.check_eclp_impl_valid(rs, antecedent, antecedentC)) for antecedentC in flushed_cutpoints]
-    # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
-    usable_flushed_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, result) for (antecedentC, result) in flushed_cutpoints_with_subst if result.valid]
-    if (len(list(usable_flushed_cutpoints)) > 0):
-        print(f'Using cutpoint (usable: {usable_flushed_cutpoints})')
-        return VerifyResult(True, [(antecedent, depth)]) # Conseq, Axiom
-
-    if (depth >= settings.max_depth):
-        return VerifyResult(False, [(antecedent, depth)])
-
-    # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
-    user_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, settings.check_eclp_impl_valid(rs, antecedent, antecedentC)) for antecedentC in settings.user_cutpoints if not antecedentC in user_cutpoint_blacklist]
-    # The list of cutpoints matching the current 'state'
-    usable_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [(antecedentC, subst) for (antecedentC, subst) in user_cutpoints_with_subst if subst is not None]
-    # If at least on succeeds, it is good.
-    for (antecedentC, subst) in usable_cutpoints:
-        print(f'using cutpoint {antecedentC}')
-        # apply Conseq (using [subst]) to change the goal to [antecedentC]
-        # apply Circularity
-        # We filter [user_cutpoints] to prevent infinite loops
-        result = verify(
-            settings=settings,
-            rs=rs,
-            antecedent=antecedentC,
-            consequent=consequent,
-            instantiated_cutpoints=(instantiated_cutpoints + [antecedentC]),
-            flushed_cutpoints=flushed_cutpoints,
-            user_cutpoint_blacklist=user_cutpoint_blacklist.union((antecedentC,)),
-            depth=depth+1,
-        )
-        if result.proved:
-            return result
-    
-    list_of_final_states : List[Tuple[ECLP, int]] = []
-    for j in range(0, arity):
-        print(f"j: {j}")
-        # TODO We can execute a component [j] until it partially matches the corresponding component of some circularity/axiom
-        iterations = 0
-        stop_reason : StopReason = StopReason.DEPTH_BOUND
-        pattern_j : Pattern = antecedent.clp.lp.patterns[j]
-        while stop_reason == StopReason.DEPTH_BOUND and depth + iterations < settings.max_depth:
-            step_result : ExecuteResult = rs.kcs.client.execute(pattern=pattern_j, max_depth=1)
-            stop_reason = step_result.reason
-            if stop_reason == StopReason.DEPTH_BOUND:
-                iterations = iterations + 1
-                pattern_j = step_result.state.kore
-        print(f'Iterations: {iterations}')
-        curr_depth : int = depth + iterations
-        flush = True if iterations > 0 else False
-
-        # Cannot rewrite the j'th component anymore
-        if step_result.reason == StopReason.DEPTH_BOUND:
-            bs : List[Pattern] = [pattern_j]
-        elif step_result.reason == StopReason.BRANCHING and step_result.next_states is not None:
-            bs = list(map(lambda s: s.kore, step_result.next_states))
-        elif step_result.reason == StopReason.STUCK and iterations > 0:
-            bs = [pattern_j]
-        else:
-            print(f'Continuing: result.reason == {step_result.reason}, iterations == {iterations}')
-            continue
-
-        print(f'next states: {len(bs)}')
-        verify_result : VerifyResult = VerifyResult(True, [])
-
-        for b in bs:
-            newantecedent : ECLP = antecedent
-            newantecedent.clp.lp.patterns[j] = b
-            # TODO:
-            # (1) prune inconsistent branches (since we have the toplevel constraint in antecedent/newantecedent)
-            # (2) propagate the constraints as locally as possible
-            #if not consistent(newantecedent):
-            #    continue
-
-            if flush and len(instantiated_cutpoints) > 0:
-                print("Flushing")
-                new_instantiated_cutpoints = []
-                new_flushed_cutpoints = instantiated_cutpoints+flushed_cutpoints
-            else:
-                new_instantiated_cutpoints = instantiated_cutpoints
-                new_flushed_cutpoints = flushed_cutpoints
-
-            intermediate_result : VerifyResult = verify(
-                settings=settings,
-                rs=rs,
-                antecedent=newantecedent,
-                consequent=consequent,
-                instantiated_cutpoints=new_instantiated_cutpoints,
-                flushed_cutpoints=new_flushed_cutpoints,
-                user_cutpoint_blacklist=user_cutpoint_blacklist,
-                depth=curr_depth,
-            )
-            verify_result.proved = verify_result.proved and intermediate_result.proved
-            verify_result.final_states = verify_result.final_states + intermediate_result.final_states
-        if verify_result.proved == True:
-            return verify_result
-
-        list_of_final_states = list_of_final_states + verify_result.final_states
-    
-    # TODO we should do something here
-    vr = VerifyResult(False, list_of_final_states)
-
-    return vr
+def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
+    verifier = Verifier(
+        settings=settings,
+        rs=rs,
+        arity=len(antecedent.clp.lp.patterns),
+        antecedent=antecedent,
+        consequent=consequent,
+    )
+    return verifier.verify()    # TODO we should do something here
