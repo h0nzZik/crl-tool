@@ -19,6 +19,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Union,
     final,
 )
 
@@ -541,9 +542,20 @@ class VerifyGoal:
     user_cutpoint_blacklist : Set[ECLP]
 
 @dataclass
+class UnsolvableGoal:
+    reason : str
+    pass
+
+@dataclass
 class VerifyQuestion:
-    goals : List[VerifyGoal]
+    # None means impossible / failed branch / a goal with no solution.
+    # We store such value because one entry in the hypercube can be reached from multiple sides,
+    # and we do not want to 
+    goals : List[Union[VerifyGoal, UnsolvableGoal]]
     source_of_question : Optional[VerifyQuestion] # index, or nothing for initial
+
+    def is_worth_trying(self) -> bool:
+        return all(map(lambda g: g is not UnsolvableGoal, self.goals))
 
 @dataclass
 class VerifyEntry:
@@ -589,30 +601,48 @@ class Verifier:
                 return True
         return False
     
+    # Takes an index of a proof state in the hypercube
+    # and tries to advance the proof state, possibly generating more entries in the hypercube
     def advance_proof(self, idx: List[int]) -> bool:
         q : Optional[VerifyQuestion] = self.entries[self.serialize_index(idx)].question
         if q is None:
-            raise RuntimeError(f"advance_proof got no question on index {idx}")
+            return False
+            #raise RuntimeError(f"advance_proof got no question on index {idx}")
         
+        if not q.is_worth_trying():
+            return False
+        
+        # Try every possible direction
         for j in range(0, self.arity):
             idx_of_next : List[int] = idx
             idx_of_next[j] = idx_of_next[j] + 1
-            # We have already computed this
-            if self.entries[self.serialize_index(idx_of_next)].question is not None:
+            serialized_idx_of_next = self.serialize_index(idx_of_next)
+            # We have already computed this, probably from a different side, so do not compute it again.
+            # This may include situation when `not self.entries[serialized_idx_of_next].question.is_worth_trying()`
+            if (q2 := self.entries[serialized_idx_of_next].question) is not None:
+                assert(q2.source_of_question is not None)
                 continue
-            next_q : Optional[VerifyQuestion] = self.advance_proof_in_direction(q, j)
+            next_q : Optional[VerifyQuestion] = self.advance_proof_in_direction(idx=idx,q=q, j=j)
             if next_q is None:
                 return True
-            self.entries[self.serialize_index(idx_of_next)].question = next_q
+            self.entries[serialized_idx_of_next].question = next_q
         return False
 
-    def advance_proof_in_direction(self, q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
+
+    @dataclass
+    class AdvanceProofInDirectionResult:
+        pass
+
+    def advance_proof_in_direction(self, idx: List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
         new_q : VerifyQuestion = VerifyQuestion([], source_of_question=q)
-        for goal_id,goal in zip(range(len(q.goals)),q.goals):
+        for goal in q.goals:
+            if not isinstance(goal, VerifyGoal):
+                raise RuntimeError()
+            
             implies_result = self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.consequent)
             if implies_result.valid:
                 # we can build a proof object using subst, Conseq, Reflexivity
-                print(f'Goal ID {goal_id}: solved (antecedent implies consequent)')
+                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (antecedent implies consequent)')
                 continue 
 
             # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
@@ -628,7 +658,7 @@ class Verifier:
             ]
             if (len(list(usable_flushed_cutpoints)) > 0):
                 # Conseq, Axiom
-                print(f'Goal ID {goal_id}: solved (using flushed cutpoint)')
+                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (using flushed cutpoint)')
                 continue
 
             # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
@@ -643,37 +673,77 @@ class Verifier:
                 for (antecedentC, subst) in user_cutpoints_with_subst
                 if subst is not None
             ]
-            # If at least on succeeds, it is good.
-            for (antecedentC, subst) in usable_cutpoints:
+
+            if (len(usable_cutpoints) > 1):
+                _LOGGER.warning(f"Question {idx}, goal ID {goal.goal_id}: multiple usable cutpoints; choosing one arbitrarily")
+            
+            if (len(usable_cutpoints) > 0):
+                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: using a cutpoint')
+                antecedentC = usable_cutpoints[0][0]
                 # apply Conseq (using [subst]) to change the goal to [antecedentC]
                 # apply Circularity
                 # We filter [user_cutpoints] to prevent infinite loops
-                #print(f'using cutpoint {antecedentC}')
-                print(f'using cutpoint')
                 new_q.goals.append(VerifyGoal(
                     goal_id=self.fresh_goal_id(),
                     antecedent=antecedentC,
                     instantiated_cutpoints=(goal.instantiated_cutpoints + [antecedentC]),
                     flushed_cutpoints=goal.flushed_cutpoints,
-
+                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist.union(map(lambda cp: cp[0], usable_cutpoints)),
                 ))
+                continue
+            
+            pattern_j : Pattern = goal.antecedent.clp.lp.patterns[j]
+            step_result : ExecuteResult = self.rs.kcs.client.execute(pattern=pattern_j, max_depth=1)
 
-        result = verify(
-            settings=settings,
-            rs=rs,
-            antecedent=antecedentC,
-            consequent=consequent,
-            flushed_cutpoints=flushed_cutpoints,
-            user_cutpoint_blacklist=user_cutpoint_blacklist.union((antecedentC,)),
-            depth=depth+1,
-        )
-        if result.proved:
-            return result
-
-    
-        raise RuntimeError()
+            if step_result.reason == StopReason.STUCK:
+                # Cannot make progres with one goal in the question.
+                # Since we need to solve all the goals, this means that the question has no solution.
+                # We would prefer not to reach this dead end again, so we want to write to the hypercube
+                # data saying that there is an unsolvable question.
+                _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: stuck")
+                new_q.goals.append(UnsolvableGoal("stuck"))
+                continue
 
 
+            if step_result.reason == StopReason.DEPTH_BOUND:
+                # We made a step, so we can flush the circularities/instantiated cutpoints
+                newantecedent : ECLP = goal.antecedent
+                newantecedent.clp.lp.patterns[j] = step_result.state.kore
+                new_q.goals.append(VerifyGoal(
+                    goal_id=self.fresh_goal_id(),
+                    antecedent=newantecedent,
+                    instantiated_cutpoints=[],
+                    flushed_cutpoints=goal.instantiated_cutpoints+goal.flushed_cutpoints,
+                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                ))
+                continue
+            
+            if step_result.reason == StopReason.BRANCHING:
+                assert(step_result.next_states is not None)
+                assert(len(step_result.next_states) > 1)
+                _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: branching ({len(step_result.next_states)})")
+                bs = list(map(lambda s: s.kore, step_result.next_states))
+                for b in bs:
+                    newantecedent = goal.antecedent
+                    newantecedent.clp.lp.patterns[j] = b
+                    # TODO:
+                    # (1) prune inconsistent branches (since we have the toplevel constraint in antecedent/newantecedent)
+                    # (2) propagate the constraints as locally as possible
+                    #if not consistent(newantecedent):
+                    #    continue
+                    # We didn't make step, so no flushing
+                    new_q.goals.append(VerifyGoal(
+                        goal_id=self.fresh_goal_id(),
+                        antecedent=newantecedent,
+                        instantiated_cutpoints=goal.instantiated_cutpoints,
+                        flushed_cutpoints=goal.flushed_cutpoints,
+                        user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                    ))
+                    continue
+                continue
+            _LOGGER.error(f"Question {idx}, goal ID {goal.goal_id}: weird step_result: reason={step_result.reason}")
+            raise RuntimeError()
+        return new_q
 
 @final
 @dataclass
