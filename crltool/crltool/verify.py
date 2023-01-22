@@ -508,7 +508,7 @@ def vecrange_with_sum(k, s, b):
     max_ys = ((k-1)*(b-1))
     # Therefore, it does not make much sense to start with x smaller than the following:
     fr = max(0, s - max_ys)
-    to = min(s, b)
+    to = min(s+1, b)
     #print(f"From {fr} to {to} (including)")
     r = range(fr, to)
     #print(f'range: {list(r)}')
@@ -582,8 +582,10 @@ class Verifier:
         self.arity = arity
         self.consequent = consequent
         self.last_goal_id = 1
-        self.entries = (self.settings.max_depth**arity)*[VerifyEntry(None)]
-        self.entries[self.serialize_index(self.arity * [0])].question = VerifyQuestion(
+        self.entries = ((self.settings.max_depth+1)**arity)*[VerifyEntry(None)]
+        idx0 = self.serialize_index(self.arity * [0])
+        _LOGGER.debug(f'idx0: {idx0}')
+        self.entries[idx0].question = VerifyQuestion(
             goals=[VerifyGoal(
                 goal_id = 0,
                 antecedent=antecedent,
@@ -595,14 +597,16 @@ class Verifier:
         )
 
     def serialize_index(self, idx : List[int]) -> int:
-        return reduce(lambda r, i: r*self.settings.max_depth + i, idx, 0)
+        return reduce(lambda i, r: r*self.settings.max_depth + i, idx, 0)
 
     def fresh_goal_id(self) -> int:
         self.last_goal_id = self.last_goal_id + 1
         return self.last_goal_id
 
     def verify(self) -> VerifyResult:
+        _LOGGER.debug(f'Range: {list(vecrange(self.arity, self.settings.max_depth))}')
         for idx in vecrange(self.arity, self.settings.max_depth):
+            _LOGGER.debug(f"idx: {idx}")
             if self.advance_proof(idx):
                 return VerifyResult(proved=True, final_states=[])
         return VerifyResult(proved=False, final_states=[]) # TODO: extract the final_states
@@ -639,10 +643,13 @@ class Verifier:
         pass
 
     def advance_proof_in_direction(self, idx: List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
+        _LOGGER.info(f"Question {idx}")
         new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx)
         for goal in q.goals:
             if not isinstance(goal, VerifyGoal):
                 raise RuntimeError()
+
+            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}")
             
             implies_result = self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.consequent)
             if implies_result.valid:

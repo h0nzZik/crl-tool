@@ -151,6 +151,7 @@ def prove(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
         settings = VerifySettings(eclp_impl_valid_trough_lists, [], int(args['depth']))
+        _LOGGER.info("Going to call `verify`")
         result : VerifyResult = verify(
             rs=rs, 
             settings=settings, 
@@ -174,7 +175,8 @@ def prove(rs: ReachabilitySystem, args) -> int:
 def main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
-    logging.basicConfig(encoding='utf-8', level=logging.DEBUG, filename="crl-tool.log")
+    #logging.basicConfig(encoding='utf-8', level=logging.DEBUG, filename="crl-tool.log")
+    logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
     if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
         print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")
         return
