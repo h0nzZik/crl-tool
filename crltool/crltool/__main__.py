@@ -162,7 +162,7 @@ def prove(rs: ReachabilitySystem, args) -> int:
             consequent=claim.consequent,
         )
         print(f'proved: {result.proved}')
-        print('remaining questions:')
+        print(f'Have {len(result.final_states)} remaining questions:')
         for s,i in zip(result.final_states, range(len(result.final_states))):
             print(f'Proof state {i} in depth {s.depth}, generated from {s.source_of_question}: ')
             for g0 in s.goals:
