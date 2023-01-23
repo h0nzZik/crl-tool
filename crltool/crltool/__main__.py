@@ -78,6 +78,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
     subparser_prove.add_argument('--depth', type=int, default=10)
+    subparser_prove.add_argument('--no-print', action='store_true')
 
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
@@ -163,6 +164,9 @@ def prove(rs: ReachabilitySystem, args) -> int:
         )
         print(f'proved: {result.proved}')
         print(f'Have {len(result.final_states)} remaining questions:')
+        if (args['no_print']):
+            print("(omitted).")
+            return 0
         for s,i in zip(result.final_states, range(len(result.final_states))):
             print(f'Proof state {i} in depth {s.depth}, generated from {s.source_of_question}: ')
             for g0 in s.goals:
