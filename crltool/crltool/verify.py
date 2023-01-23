@@ -1082,6 +1082,8 @@ class Verifier:
                     # (2) propagate the constraints as locally as possible
                     #if not consistent(newantecedent):
                     #    continue
+                    # But actually, the implication [antecedent ---> consequent] entails consistency check,
+                    # because if the LHS is inconsistent, the implication holds.
                     # We didn't make step, so no flushing
                     new_q.goals.append(VerifyGoal(
                         goal_id=self.fresh_goal_id(),
