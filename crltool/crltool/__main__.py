@@ -47,6 +47,8 @@ from .kore_utils import (
 from .ReachabilitySystem import ReachabilitySystem
 
 from .verify import (
+    UnsolvableGoal,
+    VerifyGoal,
     EclpImpliesResult,
     eclp_impl_valid,
     eclp_impl_valid_trough_lists,
@@ -159,16 +161,22 @@ def prove(rs: ReachabilitySystem, args) -> int:
             consequent=claim.consequent,
         )
         print(f'proved: {result.proved}')
-        print('remaining states:')
+        print('remaining questions:')
         for s,i in zip(result.final_states, range(len(result.final_states))):
-            print(f'Proof state {i}: ')
-            depth : int = s[1]
-            eclp : ECLP = s[0]
-            print('ECLP')
-            patterns = list(map(lambda p: (rs.kprint.kore_to_pretty(p)), eclp.clp.lp.patterns))
-            pprint.pprint(patterns)
-            print('Constraint')
-            pprint.pprint(rs.kprint.kore_to_pretty(eclp.clp.constraint))
+            print(f'Proof state {i} in depth {s.depth}, generated from {s.source_of_question}: ')
+            for g0 in s.goals:
+                if not isinstance(g0, VerifyGoal):
+                    print('Unsolvable')
+                    continue
+                g : VerifyGoal = g0
+                print(f'Goal ID {g.goal_id}')
+                #depth : int = s[1]
+                #eclp : ECLP = s[0]
+                #print('ECLP')
+                patterns = list(map(lambda p: (rs.kprint.kore_to_pretty(p)), g.antecedent.clp.lp.patterns))
+                pprint.pprint(patterns)
+                print('Constraint')
+                pprint.pprint(rs.kprint.kore_to_pretty(g.antecedent.clp.constraint))
 
     return 0
 

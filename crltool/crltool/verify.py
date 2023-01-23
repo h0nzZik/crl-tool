@@ -552,6 +552,7 @@ class VerifyQuestion:
     # We store such value because one entry in the hypercube can be reached from multiple sides,
     # and we do not want to 
     goals : List[Union[VerifyGoal, UnsolvableGoal]]
+    depth : List[int]
     source_of_question : Optional[List[int]] # index, or nothing for initial
 
     def is_worth_trying(self) -> bool:
@@ -560,12 +561,13 @@ class VerifyQuestion:
 @dataclass
 class VerifyEntry:
     question : Optional[VerifyQuestion]
+    processed : bool
 
 @final
 @dataclass
 class VerifyResult:
     proved : bool
-    final_states : List[Tuple[ECLP, int]]
+    final_states : List[VerifyQuestion]
 
 @dataclass
 class Verifier:
@@ -582,18 +584,23 @@ class Verifier:
         self.arity = arity
         self.consequent = consequent
         self.last_goal_id = 1
-        self.entries = [VerifyEntry(None) for _ in range((self.settings.max_depth)**arity)]
-        idx0 = self.serialize_index(self.arity * [0])
-        _LOGGER.debug(f'idx0: {idx0}')
-        self.entries[idx0].question = VerifyQuestion(
-            goals=[VerifyGoal(
-                goal_id = 0,
-                antecedent=antecedent,
-                instantiated_cutpoints=[],
-                flushed_cutpoints=[],
-                user_cutpoint_blacklist=set(),
-            )],
-            source_of_question=None,
+        self.entries = [VerifyEntry(None, False) for _ in range((self.settings.max_depth+1)**arity)]
+        zero_idx = self.arity * [0]
+        idx0 = self.serialize_index(zero_idx)
+        #_LOGGER.debug(f'idx0: {idx0}')
+        self.entries[idx0] = VerifyEntry(
+            VerifyQuestion(
+                goals=[VerifyGoal(
+                    goal_id = 0,
+                    antecedent=antecedent,
+                    instantiated_cutpoints=[],
+                    flushed_cutpoints=[],
+                    user_cutpoint_blacklist=set(),
+                )],
+                source_of_question=None,
+                depth=zero_idx,
+            ),
+            False
         )
 
     def serialize_index(self, idx : List[int]) -> int:
@@ -610,18 +617,21 @@ class Verifier:
             #_LOGGER.debug(f"idx: {idx}")
             if self.advance_proof(idx):
                 return VerifyResult(proved=True, final_states=[])
-        return VerifyResult(proved=False, final_states=[]) # TODO: extract the final_states
+        vr = VerifyResult(proved=False, final_states=[])
+        # TODO: extract the final_states
+        vr.final_states = [q for q in self.unprocessed()]
+        return  vr 
     
     # Takes an index of a proof state in the hypercube
     # and tries to advance the proof state, possibly generating more entries in the hypercube
     def advance_proof(self, idx: List[int]) -> bool:
-        _LOGGER.info(f"advance_proof on {idx}")
-        q : Optional[VerifyQuestion] = self.entries[self.serialize_index(idx)].question
-        if q is None:
+        _LOGGER.info(f"Advance_proof on {idx}. Total unprocessed: {len(self.unprocessed())}")
+        e : VerifyEntry = self.entries[self.serialize_index(idx)]
+        if e.question is None:
             return False
             #raise RuntimeError(f"advance_proof got no question on index {idx}")
         
-        if not q.is_worth_trying():
+        if not e.question.is_worth_trying():
             _LOGGER.info(f"{idx} not worth trying")
             return False
         
@@ -632,18 +642,21 @@ class Verifier:
             _LOGGER.debug(f"From {idx} to {idx_of_next}")
             serialized_idx_of_next = self.serialize_index(idx_of_next)
             store_next = serialized_idx_of_next < len(self.entries)
-            print(list(map(lambda e: e.question is not None, self.entries)))
+            assert(store_next)
+            #print(list(map(lambda e: e.question is not None, self.entries)))
             # We have already computed this, probably from a different side, so do not compute it again.
             # This may include situation when `not self.entries[serialized_idx_of_next].question.is_worth_trying()`
             if store_next:
                 q2 = self.entries[serialized_idx_of_next].question
                 if q2 is not None:
                     continue
-            next_q : Optional[VerifyQuestion] = self.advance_proof_in_direction(idx=idx,q=q, j=j)
+            next_q : Optional[VerifyQuestion] = self.advance_proof_in_direction(idx=idx, idx_of_next=idx_of_next, q=e.question, j=j)
             if next_q is None:
+                e.processed = True
                 return True
             if store_next:
                 self.entries[serialized_idx_of_next].question = next_q
+        e.processed = True
         return False
 
 
@@ -651,9 +664,9 @@ class Verifier:
     class AdvanceProofInDirectionResult:
         pass
 
-    def advance_proof_in_direction(self, idx: List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
+    def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
         _LOGGER.info(f"Question {idx}")
-        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx)
+        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
         for goal in q.goals:
             if not isinstance(goal, VerifyGoal):
                 raise RuntimeError()
@@ -767,6 +780,8 @@ class Verifier:
             raise RuntimeError()
         return new_q
 
+    def unprocessed(self) -> List[VerifyQuestion]:
+        return [e.question for e in self.entries if not e.processed and e.question is not None]
 
 
 # Phi - CLP (constrained list pattern)
