@@ -152,11 +152,12 @@ def eclp_to_pretty(rs: ReachabilitySystem, eclp: ECLP):
 def prove(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
-        settings = VerifySettings(eclp_impl_valid_trough_lists, [], int(args['depth']))
+        settings = VerifySettings(eclp_impl_valid_trough_lists, int(args['depth']))
         _LOGGER.info("Going to call `verify`")
         result : VerifyResult = verify(
             rs=rs, 
-            settings=settings, 
+            settings=settings,
+            user_cutpoints=[],
             antecedent=claim.antecedent, 
             consequent=claim.consequent,
         )
@@ -186,6 +187,7 @@ def main() -> None:
     #logging.basicConfig(encoding='utf-8', level=logging.DEBUG, filename="crl-tool.log")
     logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
     logging.getLogger('pyk.kore.rpc').disabled = True
+    logging.getLogger('pyk.ktool.kprint').disabled = True
     if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
         print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")
         return

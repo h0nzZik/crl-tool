@@ -530,7 +530,6 @@ def vecrange(k, b):
 @dataclass
 class VerifySettings:
     check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
-    user_cutpoints : List[ECLP]
     max_depth : int
 
 @dataclass
@@ -572,17 +571,19 @@ class VerifyResult:
 @dataclass
 class Verifier:
     settings: VerifySettings
+    user_cutpoints : List[ECLP]
     rs: ReachabilitySystem
     arity : int
     consequent : ECLP
     last_goal_id : int
     entries : List[VerifyEntry]
 
-    def __init__(self, settings: VerifySettings, rs: ReachabilitySystem, arity: int, antecedent : ECLP, consequent: ECLP):
+    def __init__(self, settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, arity: int, antecedent : ECLP, consequent: ECLP):
         self.settings = settings
         self.rs = rs
         self.arity = arity
         self.consequent = consequent
+        self.user_cutpoints = user_cutpoints
         self.last_goal_id = 1
         self.entries = [VerifyEntry(None, False) for _ in range((self.settings.max_depth+1)**arity)]
         zero_idx = self.arity * [0]
@@ -659,11 +660,6 @@ class Verifier:
         e.processed = True
         return False
 
-
-    @dataclass
-    class AdvanceProofInDirectionResult:
-        pass
-
     def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
         _LOGGER.info(f"Question {idx}")
         new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
@@ -698,7 +694,7 @@ class Verifier:
             # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
             user_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
                 (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
-                for antecedentC in self.settings.user_cutpoints
+                for antecedentC in self.user_cutpoints
                 if not antecedentC in goal.user_cutpoint_blacklist
             ]
             # The list of cutpoints matching the current 'state'
@@ -791,9 +787,14 @@ class Verifier:
 #   it is our task to verify them if we need to use them.
 # instantiated_cutpoints
 # flushed_cutpoints
-def verify(settings: VerifySettings, rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
+def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
+    user_cutpoints_2 = user_cutpoints.copy()
+    if antecedent not in user_cutpoints_2:
+        user_cutpoints_2.append(antecedent)
+        
     verifier = Verifier(
         settings=settings,
+        user_cutpoints=user_cutpoints_2,
         rs=rs,
         arity=len(antecedent.clp.lp.patterns),
         antecedent=antecedent,
