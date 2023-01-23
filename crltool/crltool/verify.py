@@ -688,7 +688,7 @@ class Verifier:
             if goal.is_fully_stuck():
                 continue
 
-            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}")
+            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, directions {len([True for b in goal.stuck if not b])}")
             
             implies_result = self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.consequent)
             if implies_result.valid:
@@ -696,6 +696,7 @@ class Verifier:
                 _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (antecedent implies consequent)')
                 continue 
 
+            _LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}")
             # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
             flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
                 (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
@@ -845,7 +846,7 @@ def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: Reachabili
         user_cutpoints=user_cutpoints_2,
         rs=rs,
         arity=len(antecedent.clp.lp.patterns),
-        antecedent=antecedent,
+        antecedent=antecedent.with_no_vars(),
         consequent=consequent,
     )
     return verifier.verify()    # TODO we should do something here

@@ -65,6 +65,9 @@ class ECLP:
     
     def copy(self):
         return ECLP(self.vars.copy(), self.clp.copy())
+    
+    def with_no_vars(self):
+        return ECLP([], self.clp.copy())
 
 @final
 @dataclass

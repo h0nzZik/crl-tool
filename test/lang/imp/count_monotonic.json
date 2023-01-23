@@ -1,6 +1,11 @@
 {
     "antecedent" : {
-        "vars" : [],
+        "vars" : [
+            {"name": "X0", "sort": {"args": [], "name": "SortInt", "tag": "SortApp"}, "tag": "EVar"},
+            {"name": "X1", "sort": {"args": [], "name": "SortInt", "tag": "SortApp"}, "tag": "EVar"},
+            {"name": "Y0", "sort": {"args": [], "name": "SortInt", "tag": "SortApp"}, "tag": "EVar"},
+            {"name": "Y1", "sort": {"args": [], "name": "SortInt", "tag": "SortApp"}, "tag": "EVar"}
+        ],
         "clp" : {
             "lp" : {
                 "patterns" : [
