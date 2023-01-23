@@ -484,6 +484,58 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
     result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
     return EclpImpliesResult(result.satisfiable, result.substitution)
 
+
+# But this will have a problem with predicate patterns
+def rename_vars(renaming: Dict[str, str], phi: Pattern) -> Pattern:
+    match phi:
+        # The main case
+        case EVar(name, sort):
+            if name in renaming:
+                return EVar(renaming[name], sort)
+            return EVar(name, sort)
+
+        # The recursive cases    
+        case App(symbol_name, sorts, args):
+            return App(symbol_name, sorts, tuple(map(lambda p: rename_vars(renaming, p), args)))
+        case Not(sort, pattern):
+            return Not(sort, rename_vars(renaming, pattern))
+        case And(sort, left, right):
+            return And(sort, rename_vars(renaming, left), rename_vars(renaming, right))
+        case Or(sort, left, right):
+            return Or(sort, rename_vars(renaming, left), rename_vars(renaming, right))
+        case Implies(sort, left, right):
+            return Implies(sort, rename_vars(renaming, left), rename_vars(renaming, right))
+        case Iff(sort, left, right):
+            return Iff(sort, rename_vars(renaming, left), rename_vars(renaming, right))
+        case Exists(sort, var, pattern):
+            new_dict = dict(renaming)
+            new_dict.update({var.name : var.name})
+            return Exists(sort, var, rename_vars(new_dict, pattern))
+        case Forall(sort, var, pattern):
+            new_dict = dict(renaming)
+            new_dict.update({var.name : var.name})
+            return Forall(sort, var, rename_vars(new_dict, pattern))
+        # Base cases
+        case Equals(op_sort, sort, left, right):
+            return Equals(op_sort, sort, rename_vars(renaming, left), rename_vars(renaming, right))
+        case In(op_sort, sort, left, right):
+            return In(op_sort, sort, rename_vars(renaming, left), rename_vars(renaming, right))
+        case DV(_,_):
+            return phi
+        case SVar(_, _):
+            return phi
+        case String(_):
+            return phi
+        case Top(_):
+            return phi
+        case Bottom(_):
+            return phi
+        case _:
+            raise NotImplementedError()
+    raise NotImplementedError()
+        
+
+
 # https://gist.github.com/h0nzZik/9a60018948733eb9983ee2c81aad281f
 
 # Generates a 'layer' of lists of lengh `k` of integers, such that each list has sum `s` and values < `b`.
@@ -829,6 +881,32 @@ class Verifier:
         return [e.question for e in self.entries if (not e.processed) and (e.question is not None)]
 
 
+def rename_vars_lp(renaming: Dict[str, str], lp: LP):
+    return LP(list(map(lambda p: rename_vars(renaming, p), lp.patterns)))
+
+def rename_vars_clp(renaming: Dict[str, str], clp: CLP):
+    return CLP(lp=rename_vars_lp(renaming, clp.lp), constraint=rename_vars(renaming, clp.constraint))
+
+def rename_vars_eclp(renaming: Dict[str, str], eclp: ECLP):
+    new_vars0 : List[Pattern] = list(map(lambda ev: rename_vars(renaming, ev), eclp.vars))
+    new_vars : List[EVar] = new_vars # type: ignore
+    return ECLP(vars=new_vars, clp=rename_vars_clp(renaming, eclp.clp))
+
+def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fresh") -> List[EVar]:
+    names_to_avoid = map(lambda ev: ev.name, avoid)
+    names_with_prefix_to_avoid : List[str] = [name for name in names_to_avoid if name.startswith(prefix)]
+    suffixes_to_avoid : List[str] = [name.removeprefix(prefix) for name in names_with_prefix_to_avoid]
+    nums_to_avoid : List[int] = [ion for ion in map(int_or_None, suffixes_to_avoid) if ion is not None]
+    if len(list(nums_to_avoid)) >= 1:
+        n = max(nums_to_avoid) + 1
+    else:
+        n = 0
+    nums = list(range(n, n + len(sorts)))
+    fresh_evars : List[EVar] = list(map(lambda n: EVar(name=prefix + str(n), sort=sorts[n]), nums))
+    return fresh_evars
+
+
+
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
@@ -837,9 +915,15 @@ class Verifier:
 # instantiated_cutpoints
 # flushed_cutpoints
 def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
+    new_cutpoint0 = antecedent.copy()
+    vars_to_avoid = free_evars_of_clp(new_cutpoint0.clp)
+    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, new_cutpoint0.vars)))
+    renaming = dict(zip(new_cutpoint0.vars, new_vars))
+    new_cutpoint = rename_vars_eclp(renaming, new_cutpoint0)
+    
     user_cutpoints_2 = user_cutpoints.copy()
-    if antecedent not in user_cutpoints_2:
-        user_cutpoints_2.append(antecedent)
+    if new_cutpoint not in user_cutpoints_2:
+        user_cutpoints_2.append(new_cutpoint)
         
     verifier = Verifier(
         settings=settings,
