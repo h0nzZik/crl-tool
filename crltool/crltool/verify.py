@@ -582,7 +582,7 @@ class Verifier:
         self.arity = arity
         self.consequent = consequent
         self.last_goal_id = 1
-        self.entries = [VerifyEntry(None) for _ in range((self.settings.max_depth+1)**arity)]
+        self.entries = [VerifyEntry(None) for _ in range((self.settings.max_depth)**arity)]
         idx0 = self.serialize_index(self.arity * [0])
         _LOGGER.debug(f'idx0: {idx0}')
         self.entries[idx0].question = VerifyQuestion(
@@ -631,15 +631,19 @@ class Verifier:
             idx_of_next[j] = idx_of_next[j] + 1
             _LOGGER.debug(f"From {idx} to {idx_of_next}")
             serialized_idx_of_next = self.serialize_index(idx_of_next)
+            store_next = serialized_idx_of_next < len(self.entries)
+            print(list(map(lambda e: e.question is not None, self.entries)))
             # We have already computed this, probably from a different side, so do not compute it again.
             # This may include situation when `not self.entries[serialized_idx_of_next].question.is_worth_trying()`
-            q2 = self.entries[serialized_idx_of_next].question
-            if q2 is not None:
-                continue
+            if store_next:
+                q2 = self.entries[serialized_idx_of_next].question
+                if q2 is not None:
+                    continue
             next_q : Optional[VerifyQuestion] = self.advance_proof_in_direction(idx=idx,q=q, j=j)
             if next_q is None:
                 return True
-            self.entries[serialized_idx_of_next].question = next_q
+            if store_next:
+                self.entries[serialized_idx_of_next].question = next_q
         return False
 
 
@@ -724,6 +728,7 @@ class Verifier:
 
             if step_result.reason == StopReason.DEPTH_BOUND:
                 # We made a step, so we can flush the circularities/instantiated cutpoints
+                _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: progress")
                 newantecedent : ECLP = goal.antecedent.copy()
                 newantecedent.clp.lp.patterns[j] = step_result.state.kore
                 new_q.goals.append(VerifyGoal(
