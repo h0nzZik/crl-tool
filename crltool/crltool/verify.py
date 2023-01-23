@@ -539,6 +539,15 @@ class VerifyGoal:
     instantiated_cutpoints : List[ECLP]
     flushed_cutpoints : List[ECLP]
     user_cutpoint_blacklist : List[ECLP]
+    stuck : List[bool]
+
+    def is_fully_stuck(self) -> bool:
+        return all(self.stuck)
+    
+#    def copy(self):
+#        return VerifyGoal(
+#            goal_id=self.goal_id,
+#            antecedent=self.antecedent.copy(), self.instantiated_cutpoints.copy(),)
 
 @dataclass
 class UnsolvableGoal:
@@ -550,7 +559,7 @@ class VerifyQuestion:
     # None means impossible / failed branch / a goal with no solution.
     # We store such value because one entry in the hypercube can be reached from multiple sides,
     # and we do not want to 
-    goals : List[Union[VerifyGoal, UnsolvableGoal]]
+    goals : List[VerifyGoal]
     depth : List[int]
     source_of_question : Optional[List[int]] # index, or nothing for initial
     why_generated : str
@@ -598,6 +607,7 @@ class Verifier:
                     instantiated_cutpoints=[],
                     flushed_cutpoints=[],
                     user_cutpoint_blacklist=list(),
+                    stuck=[False for _ in range(arity)],
                 )],
                 source_of_question=None,
                 depth=zero_idx,
@@ -673,10 +683,10 @@ class Verifier:
     
     def advance_proof_general(self, idx: List[int], q: VerifyQuestion) -> None:
         _LOGGER.info(f"Question {idx} in general. Goals: {len(q.goals)}")
-        new_goals : List[Union[VerifyGoal, UnsolvableGoal]] = []
+        new_goals : List[VerifyGoal] = []
         for goal in q.goals:
-            if not isinstance(goal, VerifyGoal):
-                raise RuntimeError()
+            if goal.is_fully_stuck():
+                continue
 
             _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}")
             
@@ -730,7 +740,8 @@ class Verifier:
                     antecedent=antecedentC,
                     instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentC],
                     flushed_cutpoints=goal.flushed_cutpoints,
-                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
+                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints)),
+                    stuck=goal.stuck.copy()
                 ))
                 continue
             new_goals.append(goal)
@@ -739,11 +750,11 @@ class Verifier:
         return
 
     def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
-        _LOGGER.info(f"Question {idx} in direction {j}. Goals: {q.goals}")
+        _LOGGER.info(f"Question {idx} in direction {j}. Goals: {len(q.goals)}")
         new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next, why_generated="?")
         for goal in q.goals:
-            if not isinstance(goal, VerifyGoal):
-                raise RuntimeError()
+            if (goal.stuck[j]):
+                continue
 
             _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}")
 
@@ -756,7 +767,17 @@ class Verifier:
                 # We would prefer not to reach this dead end again, so we want to write to the hypercube
                 # data saying that there is an unsolvable question.
                 _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: stuck")
-                new_q.goals.append(UnsolvableGoal("stuck"))
+                new_stuck = goal.stuck.copy()
+                new_stuck[j] = True
+                new_goal = VerifyGoal(
+                    goal_id=self.fresh_goal_id(),
+                    antecedent=goal.antecedent,
+                    instantiated_cutpoints=goal.instantiated_cutpoints,
+                    flushed_cutpoints=goal.flushed_cutpoints,
+                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                    stuck=new_stuck
+                )
+                new_q.goals.append(new_goal)
                 continue
 
 
@@ -771,6 +792,7 @@ class Verifier:
                     instantiated_cutpoints=[],
                     flushed_cutpoints=goal.instantiated_cutpoints+goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                    stuck=goal.stuck.copy(),
                 ))
                 continue
             
@@ -794,6 +816,7 @@ class Verifier:
                         instantiated_cutpoints=goal.instantiated_cutpoints,
                         flushed_cutpoints=goal.flushed_cutpoints,
                         user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                        stuck=goal.stuck.copy()
                     ))
                     continue
                 continue
