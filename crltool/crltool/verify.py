@@ -481,7 +481,11 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
     #print(f'from {antecedent_list}')
     #print(f'to {ex_consequent_list}')
 
-    result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
+    try:
+        result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
+    except:
+        _LOGGER.error(f"Implication failed: {antecedent_list} -> {ex_consequent_list}")
+        raise
     return EclpImpliesResult(result.satisfiable, result.substitution)
 
 
@@ -748,7 +752,7 @@ class Verifier:
                 _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (antecedent implies consequent)')
                 continue 
 
-            _LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}")
+            #_LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}") # most often should be empty
             # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
             flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
                 (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
@@ -790,7 +794,7 @@ class Verifier:
                 # We filter [user_cutpoints] to prevent infinite loops
                 new_goals.append(VerifyGoal(
                     goal_id=new_goal_id,
-                    antecedent=antecedentC,
+                    antecedent=goal.antecedent,
                     instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentC],
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints)),
@@ -889,7 +893,7 @@ def rename_vars_clp(renaming: Dict[str, str], clp: CLP):
 
 def rename_vars_eclp(renaming: Dict[str, str], eclp: ECLP):
     new_vars0 : List[Pattern] = list(map(lambda ev: rename_vars(renaming, ev), eclp.vars))
-    new_vars : List[EVar] = new_vars # type: ignore
+    new_vars : List[EVar] = new_vars0 # type: ignore
     return ECLP(vars=new_vars, clp=rename_vars_clp(renaming, eclp.clp))
 
 def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fresh") -> List[EVar]:
@@ -916,10 +920,12 @@ def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fre
 # flushed_cutpoints
 def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
     new_cutpoint0 = antecedent.copy()
-    vars_to_avoid = free_evars_of_clp(new_cutpoint0.clp)
+    vars_to_avoid = free_evars_of_clp(antecedent.clp) #.union(free_evars_of_clp(consequent.clp))
     new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, new_cutpoint0.vars)))
-    renaming = dict(zip(new_cutpoint0.vars, new_vars))
+    renaming = dict(zip(map(lambda e: e.name, new_cutpoint0.vars), map(lambda e: e.name, new_vars)))
+    #print(f'renaming: {renaming}')
     new_cutpoint = rename_vars_eclp(renaming, new_cutpoint0)
+    #print(new_cutpoint)
     
     user_cutpoints_2 = user_cutpoints.copy()
     if new_cutpoint not in user_cutpoints_2:
