@@ -538,7 +538,7 @@ class VerifyGoal:
     antecedent : ECLP
     instantiated_cutpoints : List[ECLP]
     flushed_cutpoints : List[ECLP]
-    user_cutpoint_blacklist : Set[ECLP]
+    user_cutpoint_blacklist : List[ECLP]
 
 @dataclass
 class UnsolvableGoal:
@@ -553,6 +553,7 @@ class VerifyQuestion:
     goals : List[Union[VerifyGoal, UnsolvableGoal]]
     depth : List[int]
     source_of_question : Optional[List[int]] # index, or nothing for initial
+    why_generated : str
 
     def is_worth_trying(self) -> bool:
         return all(map(lambda g: g is not UnsolvableGoal, self.goals))
@@ -596,10 +597,11 @@ class Verifier:
                     antecedent=antecedent,
                     instantiated_cutpoints=[],
                     flushed_cutpoints=[],
-                    user_cutpoint_blacklist=set(),
+                    user_cutpoint_blacklist=list(),
                 )],
                 source_of_question=None,
                 depth=zero_idx,
+                why_generated="initial"
             ),
             False
         )
@@ -662,7 +664,7 @@ class Verifier:
 
     def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
         _LOGGER.info(f"Question {idx}")
-        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
+        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next, why_generated="?")
         for goal in q.goals:
             if not isinstance(goal, VerifyGoal):
                 raise RuntimeError()
@@ -708,17 +710,18 @@ class Verifier:
                 _LOGGER.warning(f"Question {idx}, goal ID {goal.goal_id}: multiple usable cutpoints; choosing one arbitrarily")
             
             if (len(usable_cutpoints) > 0):
-                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: using a cutpoint')
+                new_goal_id = self.fresh_goal_id()
+                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: using a cutpoint to create goal with ID {new_goal_id}')
                 antecedentC = usable_cutpoints[0][0]
                 # apply Conseq (using [subst]) to change the goal to [antecedentC]
                 # apply Circularity
                 # We filter [user_cutpoints] to prevent infinite loops
                 new_q.goals.append(VerifyGoal(
-                    goal_id=self.fresh_goal_id(),
+                    goal_id=new_goal_id,
                     antecedent=antecedentC,
                     instantiated_cutpoints=(goal.instantiated_cutpoints + [antecedentC]),
                     flushed_cutpoints=goal.flushed_cutpoints,
-                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist.union(map(lambda cp: cp[0], usable_cutpoints)),
+                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints)),
                 ))
                 continue
             
