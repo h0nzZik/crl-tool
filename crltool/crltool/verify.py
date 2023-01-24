@@ -725,6 +725,13 @@ class PerfCounter:
     total_count : int = 0
     total_time : float = 0.0
 
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {
+            'total_count' : self.total_count,
+            'total_time' : self.total_time
+        }
+
     def add(self, time_diff : float) -> None:
         self.total_count = self.total_count + 1
         self.total_time = self.total_time + time_diff
@@ -745,6 +752,14 @@ class Verifier:
         big_impl = PerfCounter()
         small_impl = PerfCounter()
         stepping = PerfCounter()
+
+        @property
+        def dict(self) -> Dict[str, Any]:
+            return {
+                'big_impl' : self.big_impl.dict,
+                'small_impl' : self.small_impl.dict,
+                'stepping' : self.stepping.dict,
+            }
 
     ps = PerformanceStatistics()
 
