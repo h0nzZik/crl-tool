@@ -217,8 +217,10 @@ def prove(rs: ReachabilitySystem, args) -> int:
         )
         result : VerifyResult = verifier.verify()
 
-
         print(f'proved: {result.proved}')
+
+        print(verifier.ps)
+
         if (not result.proved) and (args['dump_on_failure'] is not None):
             with open(args['dump_on_failure'], 'w') as fw:
                 fw.write(verifier.dump())

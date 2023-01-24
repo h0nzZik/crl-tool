@@ -1,5 +1,6 @@
 import logging
 import json
+import time
 
 from dataclasses import dataclass
 
@@ -720,6 +721,15 @@ class VerifyResult:
     final_states : List[VerifyQuestion]
 
 @dataclass
+class PerfCounter:
+    total_count : int = 0
+    total_time : float = 0.0
+
+    def add(self, time_diff : float) -> None:
+        self.total_count = self.total_count + 1
+        self.total_time = self.total_time + time_diff
+
+@dataclass # ???
 class Verifier:
     settings: VerifySettings
     user_cutpoints : List[ECLP]
@@ -728,6 +738,15 @@ class Verifier:
     consequent : ECLP
     last_goal_id : int
     entries : List[VerifyEntry]
+
+
+    @dataclass
+    class PerformanceStatistics:
+        big_impl = PerfCounter()
+        small_impl = PerfCounter()
+        stepping = PerfCounter()
+
+    ps = PerformanceStatistics()
 
     def __init__(self, settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, arity: int, antecedent : ECLP, consequent: ECLP):
         self.settings = settings
@@ -837,6 +856,14 @@ class Verifier:
         e.processed = True
         return False
     
+
+    def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
+        old = time.perf_counter()
+        r = self.settings.check_eclp_impl_valid(self.rs, antecedent, consequent)
+        new = time.perf_counter()
+        self.ps.big_impl.add(new - old)
+        return r
+
     def advance_proof_general(self, idx: List[int], q: VerifyQuestion) -> None:
         _LOGGER.info(f"Question {idx} in general. Goals: {len(q.goals)}")
         new_goals : List[VerifyGoal] = []
@@ -849,7 +876,7 @@ class Verifier:
 
             _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, directions {len([True for b in goal.stuck if not b])}, flushed cutpoints {len(goal.flushed_cutpoints)}")
             
-            implies_result = self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.consequent)
+            implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
             if implies_result.valid:
                 # we can build a proof object using subst, Conseq, Reflexivity
                 _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (antecedent implies consequent)')
@@ -914,6 +941,12 @@ class Verifier:
         q.goals = new_goals
         return
 
+    def implies_small(self, antecedent: Pattern, consequent: Pattern) -> bool:
+        old = time.perf_counter()
+        r = self.rs.kcs.client.implies(antecedent, consequent).satisfiable
+        new = time.perf_counter()
+        self.ps.small_impl.add(new - old)
+        return r
 
     def approx_implies_something(self,
         pattern_j : Pattern,
@@ -926,7 +959,7 @@ class Verifier:
         for eclp in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             try:
-                if self.rs.kcs.client.implies(pattern_j, phi).satisfiable:
+                if self.implies_small(pattern_j, phi):
                     return True
             except:
                 _LOGGER.error("Implies exception. LHS, RHS follows.")
@@ -934,6 +967,13 @@ class Verifier:
                 _LOGGER.error(self.rs.kprint.kore_to_pretty(phi))
                 raise
         return False
+
+    def symbolic_step(self, pattern : Pattern) -> ExecuteResult:
+        old = time.perf_counter()
+        step_result = self.rs.kcs.client.execute(pattern=pattern, max_depth=1)
+        new = time.perf_counter()
+        self.ps.stepping.add(new - old)
+        return step_result
 
     def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
         _LOGGER.info(f"Question {idx} in direction {j}. Goals: {len(q.goals)}")
@@ -950,7 +990,7 @@ class Verifier:
             
             curr_iter = 0
             while (goal.total_steps[j] + curr_iter) < self.settings.max_depth:
-                step_result : ExecuteResult = self.rs.kcs.client.execute(pattern=pattern_j, max_depth=1)
+                step_result : ExecuteResult = self.symbolic_step(pattern_j)
                 reason = step_result.reason
                 if reason != StopReason.DEPTH_BOUND:
                     break
