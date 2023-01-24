@@ -736,7 +736,7 @@ class PerfCounter:
         self.total_count = self.total_count + 1
         self.total_time = self.total_time + time_diff
 
-@dataclass # ???
+#@dataclass # ???
 class Verifier:
     settings: VerifySettings
     user_cutpoints : List[ECLP]
@@ -983,11 +983,18 @@ class Verifier:
                 raise
         return False
 
+
+    sscache : Dict[int, int] = dict()
+
     def symbolic_step(self, pattern : Pattern) -> ExecuteResult:
         old = time.perf_counter()
         step_result = self.rs.kcs.client.execute(pattern=pattern, max_depth=1)
         new = time.perf_counter()
         self.ps.stepping.add(new - old)
+        if pattern.__hash__() in self.sscache:
+            self.sscache[pattern.__hash__()] = self.sscache[pattern.__hash__()] + 1
+        else:
+            self.sscache[pattern.__hash__()] = 1
         return step_result
 
     def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
