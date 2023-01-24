@@ -49,7 +49,7 @@ from .kore_utils import (
 from .ReachabilitySystem import ReachabilitySystem
 
 from .verify import (
-    UnsolvableGoal,
+    #UnsolvableGoal,
     VerifyGoal,
     EclpImpliesResult,
     eclp_impl_valid,
@@ -57,6 +57,7 @@ from .verify import (
     VerifySettings,
     VerifyResult,
     verify,
+    prepare_verifier,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -81,7 +82,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_prove.add_argument('--specification', required=True)
     subparser_prove.add_argument('--depth', type=int, default=10)
     subparser_prove.add_argument('--no-print', action='store_true')
-    subparser_prove.add_argument('--target', nargs='+', help='<Required> Set flag', default=None)
+    subparser_prove.add_argument('--target', nargs='+', default=None)
+    subparser_prove.add_argument('--dump-on-failure', type=str, default=None)
 
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
@@ -166,14 +168,21 @@ def prove(rs: ReachabilitySystem, args) -> int:
             target=tgt
         )
         _LOGGER.info("Going to call `verify`")
-        result : VerifyResult = verify(
+        verifier = prepare_verifier(
             rs=rs, 
             settings=settings,
             user_cutpoints=[],
             antecedent=claim.antecedent, 
             consequent=claim.consequent,
         )
+        result : VerifyResult = verifier.verify()
+
+
         print(f'proved: {result.proved}')
+        if (not result.proved) and (args['dump_on_failure'] is not None):
+            with open(args['dump_on_failure'], 'w') as fw:
+                fw.write(verifier.dump())
+
         print(f'Have {len(result.final_states)} remaining questions:')
         if (args['no_print']):
             print("(omitted).")

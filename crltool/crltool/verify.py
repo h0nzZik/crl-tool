@@ -1,4 +1,5 @@
 import logging
+import json
 
 from dataclasses import dataclass
 
@@ -16,6 +17,7 @@ from typing import (
     Dict,
     Final,
     List,
+    Mapping,
     Optional,
     Set,
     Tuple,
@@ -608,6 +610,28 @@ class VerifyGoal:
     user_cutpoint_blacklist : List[ECLP]
     stuck : List[bool]
 
+    @staticmethod
+    def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
+        return VerifyGoal(
+            goal_id=int(dct['goal_id']),
+            antecedent=ECLP.from_dict(dct['antecedent']),
+            instantiated_cutpoints=list(map(ECLP.from_dict, dct['instantiated_cutpoints'])),
+            flushed_cutpoints=list(map(ECLP.from_dict, dct['flushed_cutpoints'])),
+            user_cutpoint_blacklist=list(map(ECLP.from_dict, dct['user_cutpoint_blacklist'])),
+            stuck=list(map(lambda s: bool(s), dct['stuck']))
+        )
+    
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {
+            'goal_id' : self.goal_id,
+            'antecedent' : self.antecedent.dict,
+            'instantiated_cutpoints' : list(map(lambda eclp: eclp.dict, self.instantiated_cutpoints)),
+            'flused_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
+            'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
+            'stuck' : self.stuck
+        }
+
     def is_fully_stuck(self) -> bool:
         return all(self.stuck)
     
@@ -616,10 +640,10 @@ class VerifyGoal:
 #            goal_id=self.goal_id,
 #            antecedent=self.antecedent.copy(), self.instantiated_cutpoints.copy(),)
 
-@dataclass
-class UnsolvableGoal:
-    reason : str
-    pass
+#@dataclass
+#class UnsolvableGoal:
+#    reason : str
+#    pass
 
 @dataclass
 class VerifyQuestion:
@@ -629,15 +653,50 @@ class VerifyQuestion:
     goals : List[VerifyGoal]
     depth : List[int]
     source_of_question : Optional[List[int]] # index, or nothing for initial
-    why_generated : str
 
-    def is_worth_trying(self) -> bool:
-        return all(map(lambda g: g is not UnsolvableGoal, self.goals))
+
+    @staticmethod
+    def from_dict(dct: Mapping[str, Any]) -> 'VerifyQuestion':
+        return VerifyQuestion(
+            goals=list(map(VerifyGoal.from_dict, dct['goals'])),
+            depth=dct['depth'],
+            source_of_question=None
+        )
+    
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {
+            'goals' : list(map(lambda g: g.dict, self.goals)),
+            'depth' : self.depth,
+        }
+
+    #def is_worth_trying(self) -> bool:
+    #    return all(map(lambda g: g is not UnsolvableGoal, self.goals))
 
 @dataclass
 class VerifyEntry:
     question : Optional[VerifyQuestion]
+    index : Optional[List[int]]
     processed : bool
+
+
+    @staticmethod
+    def from_dict(dct: Mapping[str, Any]) -> 'VerifyEntry':
+        q0 = dct['question']
+        q1 = None if q0 is None else VerifyQuestion.from_dict(q0)
+        return VerifyEntry(
+            question = q1,
+            index = dct['index'],
+            processed= dct['processed']
+        )
+    
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {
+            'question' : None if self.question is None else self.question.dict,
+            'index' : self.index,
+            'processed' : self.processed
+        }
 
 @final
 @dataclass
@@ -662,12 +721,12 @@ class Verifier:
         self.consequent = consequent
         self.user_cutpoints = user_cutpoints
         self.last_goal_id = 1
-        self.entries = [VerifyEntry(None, False) for _ in range(1+(self.settings.max_depth+1)**arity)]
+        self.entries = [VerifyEntry(None, None, False) for _ in range(1+(self.settings.max_depth+1)**arity)]
         zero_idx = self.arity * [0]
         idx0 = self.serialize_index(zero_idx)
         #_LOGGER.debug(f'idx0: {idx0}')
         self.entries[idx0] = VerifyEntry(
-            VerifyQuestion(
+            question=VerifyQuestion(
                 goals=[VerifyGoal(
                     goal_id = 0,
                     antecedent=antecedent,
@@ -678,10 +737,13 @@ class Verifier:
                 )],
                 source_of_question=None,
                 depth=zero_idx,
-                why_generated="initial"
             ),
-            False
+            index = zero_idx,
+            processed=False,
         )
+
+    def dump(self) -> str:
+        return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True)
 
     def serialize_index(self, idx : List[int]) -> int:
         r = reduce(lambda r, i: r*(self.settings.max_depth+1) + i, idx, 0)
@@ -702,11 +764,14 @@ class Verifier:
     def verify(self) -> VerifyResult:
         r = self.get_range()
         for idx in r:
+            last_idx = idx
             #_LOGGER.debug(f"idx: {idx}")
             if self.advance_proof(idx):
                 return VerifyResult(proved=True, final_states=[])
         vr = VerifyResult(proved=False, final_states=[])
         # TODO: extract the final_states
+        #if self.settings.target is not None:
+        #    return 
         vr.final_states = [q for q in self.unprocessed()]
         return  vr 
     
@@ -717,11 +782,12 @@ class Verifier:
         e : VerifyEntry = self.entries[self.serialize_index(idx)]
         if e.question is None:
             return False
+        e.index = idx
             #raise RuntimeError(f"advance_proof got no question on index {idx}")
         
-        if not e.question.is_worth_trying():
-            _LOGGER.info(f"{idx} not worth trying")
-            return False
+        #if not e.question.is_worth_trying():
+        #    _LOGGER.info(f"{idx} not worth trying")
+        #    return False
 
         self.advance_proof_general(idx=idx.copy(), q=e.question)
 
@@ -812,6 +878,7 @@ class Verifier:
                 # We filter [user_cutpoints] to prevent infinite loops
                 antecedentC = usable_cutpoints[0][0]
                 antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
+                _LOGGER.debug(f'New cutpoint: {antecedentCrenamed}')
                 new_goals.append(VerifyGoal(
                     goal_id=new_goal_id,
                     antecedent=antecedentC.with_no_vars(),
@@ -828,7 +895,7 @@ class Verifier:
 
     def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
         _LOGGER.info(f"Question {idx} in direction {j}. Goals: {len(q.goals)}")
-        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next, why_generated="?")
+        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
         for goal in q.goals:
             if (goal.stuck[j]):
                 continue
@@ -940,7 +1007,7 @@ def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
 #   each one is an ECLP. Note that they have not been proved to be valid;
 #   it is our task to verify them if we need to use them.
-def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
+def prepare_verifier(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> Verifier:
     user_cutpoints_2 = user_cutpoints.copy()
     if settings.goal_as_cutpoint:
         new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
@@ -955,4 +1022,8 @@ def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: Reachabili
         antecedent=antecedent.with_no_vars(),
         consequent=consequent,
     )
+    return verifier
+
+def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
+    verifier = prepare_verifier(settings, user_cutpoints, rs, antecedent, consequent)
     return verifier.verify()
