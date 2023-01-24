@@ -743,7 +743,7 @@ class Verifier:
         )
 
     def dump(self) -> str:
-        return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True)
+        return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True, indent=4)
 
     def serialize_index(self, idx : List[int]) -> int:
         r = reduce(lambda r, i: r*(self.settings.max_depth+1) + i, idx, 0)
