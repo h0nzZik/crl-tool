@@ -175,7 +175,7 @@ def print_vquestion(rs: ReachabilitySystem, q: VerifyQuestion):
         #    print('Unsolvable')
         #    continue
         g : VerifyGoal = g0
-        print(f'Goal ID {g.goal_id}')
+        print(f'Goal ID {g.goal_id}. Stuck: { g.stuck }')
         pprint_eclp(rs, g.antecedent)
         print('Flushed cutpoints')
         continue
