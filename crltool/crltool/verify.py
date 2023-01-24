@@ -788,14 +788,15 @@ class Verifier:
             if (len(usable_cutpoints) > 0):
                 new_goal_id = self.fresh_goal_id()
                 _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: using a cutpoint to create goal with ID {new_goal_id}')
-                antecedentC = usable_cutpoints[0][0]
                 # apply Conseq (using [subst]) to change the goal to [antecedentC]
                 # apply Circularity
                 # We filter [user_cutpoints] to prevent infinite loops
+                antecedentC = usable_cutpoints[0][0]
+                antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
                 new_goals.append(VerifyGoal(
                     goal_id=new_goal_id,
                     antecedent=antecedentC,
-                    instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentC],
+                    instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentCrenamed],
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints)),
                     stuck=goal.stuck.copy()
@@ -906,7 +907,7 @@ def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fre
     else:
         n = 0
     nums = list(range(n, n + len(sorts)))
-    fresh_evars : List[EVar] = list(map(lambda n: EVar(name=prefix + str(n), sort=sorts[n]), nums))
+    fresh_evars : List[EVar] = list(map(lambda m: EVar(name=prefix + str(m), sort=sorts[m - n]), nums))
     return fresh_evars
 
 def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
