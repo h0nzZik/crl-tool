@@ -794,7 +794,7 @@ class Verifier:
                 # We filter [user_cutpoints] to prevent infinite loops
                 new_goals.append(VerifyGoal(
                     goal_id=new_goal_id,
-                    antecedent=goal.antecedent,
+                    antecedent=antecedentC,
                     instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentC],
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints)),
@@ -909,7 +909,11 @@ def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fre
     fresh_evars : List[EVar] = list(map(lambda n: EVar(name=prefix + str(n), sort=sorts[n]), nums))
     return fresh_evars
 
-
+def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
+    eclp2 = eclp.copy()
+    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, eclp2.vars)))
+    renaming = dict(zip(map(lambda e: e.name, eclp2.vars), map(lambda e: e.name, new_vars)))
+    return rename_vars_eclp(renaming, eclp2)
 
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
@@ -919,13 +923,7 @@ def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fre
 # instantiated_cutpoints
 # flushed_cutpoints
 def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
-    new_cutpoint0 = antecedent.copy()
-    vars_to_avoid = free_evars_of_clp(antecedent.clp) #.union(free_evars_of_clp(consequent.clp))
-    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, new_cutpoint0.vars)))
-    renaming = dict(zip(map(lambda e: e.name, new_cutpoint0.vars), map(lambda e: e.name, new_vars)))
-    #print(f'renaming: {renaming}')
-    new_cutpoint = rename_vars_eclp(renaming, new_cutpoint0)
-    #print(new_cutpoint)
+    new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
     
     user_cutpoints_2 = user_cutpoints.copy()
     if new_cutpoint not in user_cutpoints_2:
