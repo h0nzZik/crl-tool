@@ -4,6 +4,7 @@ import logging
 import time
 import sys
 import pprint
+import cProfile
 
 from pathlib import Path
 
@@ -244,7 +245,7 @@ def prove(rs: ReachabilitySystem, args) -> int:
 
     return 0
 
-def main() -> None:
+def main_main() -> None:
     argument_parser = create_argument_parser()
     args = vars(argument_parser.parse_args())
     #logging.basicConfig(encoding='utf-8', level=logging.DEBUG, filename="crl-tool.log")
@@ -277,4 +278,6 @@ def main() -> None:
             retval = 1
                 
     sys.exit(retval)
-        
+
+def main() -> None:
+    cProfile.runctx('main_main()', globals(), locals(), sort='cumulative')
