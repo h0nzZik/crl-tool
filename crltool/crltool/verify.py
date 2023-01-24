@@ -619,6 +619,8 @@ class VerifyGoal:
     stuck : List[bool]
     total_steps : List[int]
 
+    was_processed_by_advance_general : bool = False
+
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
         return VerifyGoal(
@@ -628,7 +630,8 @@ class VerifyGoal:
             flushed_cutpoints=list(map(ECLP.from_dict, dct['flushed_cutpoints'])),
             user_cutpoint_blacklist=list(map(ECLP.from_dict, dct['user_cutpoint_blacklist'])),
             stuck=list(map(lambda s: bool(s), dct['stuck'])),
-            total_steps=dct['total_steps']
+            total_steps=dct['total_steps'],
+            was_processed_by_advance_general=dct['was_processed_by_advance_general']
         )
     
     @property
@@ -640,7 +643,8 @@ class VerifyGoal:
             'flushed_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
             'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
             'stuck' : self.stuck,
-            'total_steps' : self.total_steps
+            'total_steps' : self.total_steps,
+            'was_processed_by_advance_general' : self.was_processed_by_advance_general
         }
 
     def is_fully_stuck(self) -> bool:
@@ -782,9 +786,6 @@ class Verifier:
             if self.advance_proof(idx):
                 return VerifyResult(proved=True, final_states=[])
         vr = VerifyResult(proved=False, final_states=[])
-        # TODO: extract the final_states
-        #if self.settings.target is not None:
-        #    return 
         vr.final_states = [q for q in self.unprocessed()]
         return  vr 
     
@@ -840,6 +841,11 @@ class Verifier:
         _LOGGER.info(f"Question {idx} in general. Goals: {len(q.goals)}")
         new_goals : List[VerifyGoal] = []
         for goal in q.goals:
+
+            if goal.was_processed_by_advance_general:
+                new_goals.append(goal)
+                continue
+            goal.was_processed_by_advance_general = True
 
             _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, directions {len([True for b in goal.stuck if not b])}, flushed cutpoints {len(goal.flushed_cutpoints)}")
             
@@ -937,7 +943,7 @@ class Verifier:
                 new_q.goals.append(goal)
                 continue
 
-            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, total_steps {goal.total_steps}")
+            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, direction {j}, total_steps {goal.total_steps}")
 
             pattern_j : Pattern = goal.antecedent.clp.lp.patterns[j]
             reason : StopReason = StopReason.DEPTH_BOUND
