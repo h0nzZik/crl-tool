@@ -627,7 +627,7 @@ class VerifyGoal:
             'goal_id' : self.goal_id,
             'antecedent' : self.antecedent.dict,
             'instantiated_cutpoints' : list(map(lambda eclp: eclp.dict, self.instantiated_cutpoints)),
-            'flused_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
+            'flushed_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
             'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
             'stuck' : self.stuck
         }

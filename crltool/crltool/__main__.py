@@ -161,13 +161,37 @@ def eclp_to_pretty(rs: ReachabilitySystem, eclp: ECLP):
     return {'vars': eclp.vars, 'patterns': patterns, 'constraint': constraint}
     #return f'exists {eclp.vars} such that {patterns} /\ {constraint}'
 
+def pprint_eclp(rs: ReachabilitySystem, eclp: ECLP):
+    print("Existentially quantified variables")
+    pprint.pprint(eclp.vars)
+    patterns = list(map(lambda p: (rs.kprint.kore_to_pretty(p)), eclp.clp.lp.patterns))
+    pprint.pprint(patterns)
+    print('Constraint')
+    pprint.pprint(rs.kprint.kore_to_pretty(eclp.clp.constraint))
+
+def print_vquestion(rs: ReachabilitySystem, q: VerifyQuestion):
+    for g0 in q.goals:
+        #if not isinstance(g0, VerifyGoal):
+        #    print('Unsolvable')
+        #    continue
+        g : VerifyGoal = g0
+        print(f'Goal ID {g.goal_id}')
+        pprint_eclp(rs, g.antecedent)
+        print('Flushed cutpoints')
+        continue
+    return
+
 def view_dump(rs: ReachabilitySystem, args) -> int:
     with open(args['from'], 'r') as fr:
         the_dump = json.load(fr)
         entries : List[VerifyEntry] = [VerifyEntry.from_dict(e) for e in the_dump ]
         tgt : List[int] = list(map(lambda s: int(s), args['target']))
         selected : List[VerifyQuestion] = [e.question for e in entries if e.question is not None and e.question.depth == tgt ]
-        print(f"selected: {selected}")
+        # Usually, there should be at most one
+        for q in selected:
+            #print(f'Proof state {i} in depth {s.depth}, generated from {s.source_of_question}: ')
+            print_vquestion(rs, q)
+        #print(f"selected: {selected}")
         
     return 0
 
