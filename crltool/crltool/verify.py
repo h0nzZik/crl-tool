@@ -617,6 +617,7 @@ class VerifyGoal:
     flushed_cutpoints : List[ECLP]
     user_cutpoint_blacklist : List[ECLP]
     stuck : List[bool]
+    total_steps : List[int]
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
@@ -626,7 +627,8 @@ class VerifyGoal:
             instantiated_cutpoints=list(map(ECLP.from_dict, dct['instantiated_cutpoints'])),
             flushed_cutpoints=list(map(ECLP.from_dict, dct['flushed_cutpoints'])),
             user_cutpoint_blacklist=list(map(ECLP.from_dict, dct['user_cutpoint_blacklist'])),
-            stuck=list(map(lambda s: bool(s), dct['stuck']))
+            stuck=list(map(lambda s: bool(s), dct['stuck'])),
+            total_steps=dct['total_steps']
         )
     
     @property
@@ -637,7 +639,8 @@ class VerifyGoal:
             'instantiated_cutpoints' : list(map(lambda eclp: eclp.dict, self.instantiated_cutpoints)),
             'flushed_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
             'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
-            'stuck' : self.stuck
+            'stuck' : self.stuck,
+            'total_steps' : self.total_steps
         }
 
     def is_fully_stuck(self) -> bool:
@@ -742,6 +745,7 @@ class Verifier:
                     flushed_cutpoints=[],
                     user_cutpoint_blacklist=[],
                     stuck=[False for _ in range(arity)],
+                    total_steps=zero_idx.copy()
                 )],
                 source_of_question=None,
                 depth=zero_idx,
@@ -792,7 +796,8 @@ class Verifier:
         if e.question is None:
             return False
         e.index = idx
-            #raise RuntimeError(f"advance_proof got no question on index {idx}")
+
+        _LOGGER.debug(f"Steps on goals: {list(map(lambda g: g.total_steps, e.question.goals))}")
         
         #if not e.question.is_worth_trying():
         #    _LOGGER.info(f"{idx} not worth trying")
@@ -895,6 +900,7 @@ class Verifier:
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=ucp,
                     stuck=goal.stuck.copy(),
+                    total_steps=goal.total_steps.copy(),
                 ))
                 continue
             new_goals.append(goal)
@@ -927,17 +933,17 @@ class Verifier:
         _LOGGER.info(f"Question {idx} in direction {j}. Goals: {len(q.goals)}")
         new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
         for goal in q.goals:
-            if (goal.stuck[j]):
+            if (goal.stuck[j]) or (goal.total_steps[j] >= self.settings.max_depth):
                 new_q.goals.append(goal)
                 continue
 
-            #_LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}")
+            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, total_steps {goal.total_steps}")
 
             pattern_j : Pattern = goal.antecedent.clp.lp.patterns[j]
             reason : StopReason = StopReason.DEPTH_BOUND
-            max_iter = 3
+            
             curr_iter = 0
-            while curr_iter < max_iter:
+            while (goal.total_steps[j] + curr_iter) < self.settings.max_depth:
                 step_result : ExecuteResult = self.rs.kcs.client.execute(pattern=pattern_j, max_depth=1)
                 reason = step_result.reason
                 if reason != StopReason.DEPTH_BOUND:
@@ -948,8 +954,11 @@ class Verifier:
                 newantecedent0.clp.lp.patterns[j] = pattern_j
                 if self.approx_implies_something(pattern_j=pattern_j, j=j, flushed_cutpoints=goal.flushed_cutpoints, user_cutpoint_blacklist=goal.user_cutpoint_blacklist):
                     break
-                if curr_iter < max_iter:
+                if (goal.total_steps[j] + curr_iter) < self.settings.max_depth:
                     _LOGGER.info("stepping again")
+
+            total_steps = goal.total_steps.copy()
+            total_steps[j] = total_steps[j] + curr_iter
 
             if step_result.reason == StopReason.STUCK:
                 # FIXME the comment below is stale
@@ -969,6 +978,7 @@ class Verifier:
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
                     stuck=new_stuck,
+                    total_steps=total_steps,
                 )
                 new_q.goals.append(new_goal)
                 continue
@@ -987,6 +997,7 @@ class Verifier:
                     flushed_cutpoints=fc,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
                     stuck=goal.stuck.copy(),
+                    total_steps=total_steps,
                 ))
                 continue
             
@@ -1011,6 +1022,7 @@ class Verifier:
                         flushed_cutpoints=goal.flushed_cutpoints,
                         user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
                         stuck=goal.stuck.copy(),
+                        total_steps=total_steps,
                     ))
                     continue
                 continue
