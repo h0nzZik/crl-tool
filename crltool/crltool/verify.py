@@ -826,8 +826,10 @@ class Verifier:
         _LOGGER.info(f"Question {idx} in general. Goals: {len(q.goals)}")
         new_goals : List[VerifyGoal] = []
         for goal in q.goals:
-            if goal.is_fully_stuck():
-                continue
+
+            # We do not want to skip fully stuck states now; we wan to check whether they imply the consequent
+            # if goal.is_fully_stuck():
+            #    continue
 
             _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, directions {len([True for b in goal.stuck if not b])}, flushed cutpoints {len(goal.flushed_cutpoints)}")
             
@@ -836,6 +838,9 @@ class Verifier:
                 # we can build a proof object using subst, Conseq, Reflexivity
                 _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (antecedent implies consequent)')
                 continue 
+
+            if goal.is_fully_stuck():
+                continue
 
             #_LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}") # most often should be empty
             # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
