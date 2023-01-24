@@ -586,6 +586,7 @@ def vecrange(k, b):
 @dataclass
 class VerifySettings:
     check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
+    goal_as_cutpoint : bool
     max_depth : int
 
 @dataclass
@@ -796,7 +797,7 @@ class Verifier:
                 new_goals.append(VerifyGoal(
                     goal_id=new_goal_id,
                     antecedent=antecedentC,
-                    instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentCrenamed],
+                    instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentCrenamed.with_no_vars()],
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints)),
                     stuck=goal.stuck.copy()
@@ -919,16 +920,14 @@ def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
-#   each one is a CLP. Note that they have not been proved to be valid;
+#   each one is an ECLP. Note that they have not been proved to be valid;
 #   it is our task to verify them if we need to use them.
-# instantiated_cutpoints
-# flushed_cutpoints
 def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
-    new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
-    
     user_cutpoints_2 = user_cutpoints.copy()
-    if new_cutpoint not in user_cutpoints_2:
-        user_cutpoints_2.append(new_cutpoint)
+    if settings.goal_as_cutpoint:
+        new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
+        if new_cutpoint not in user_cutpoints_2:
+            user_cutpoints_2.append(new_cutpoint)
         
     verifier = Verifier(
         settings=settings,
@@ -938,4 +937,4 @@ def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: Reachabili
         antecedent=antecedent.with_no_vars(),
         consequent=consequent,
     )
-    return verifier.verify()    # TODO we should do something here
+    return verifier.verify()

@@ -153,7 +153,11 @@ def eclp_to_pretty(rs: ReachabilitySystem, eclp: ECLP):
 def prove(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
-        settings = VerifySettings(eclp_impl_valid_trough_lists, int(args['depth']))
+        settings = VerifySettings(
+            check_eclp_impl_valid=eclp_impl_valid_trough_lists,
+            max_depth=int(args['depth']),
+            goal_as_cutpoint=True,
+        )
         _LOGGER.info("Going to call `verify`")
         result : VerifyResult = verify(
             rs=rs, 
