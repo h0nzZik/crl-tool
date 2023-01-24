@@ -207,7 +207,7 @@ def prove(rs: ReachabilitySystem, args) -> int:
             goal_as_cutpoint=True,
             target=tgt
         )
-        _LOGGER.info("Going to call `verify`")
+        #_LOGGER.info("Going to call `verify`")
         verifier = prepare_verifier(
             rs=rs, 
             settings=settings,

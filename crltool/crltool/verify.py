@@ -490,35 +490,31 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
         raise
     return EclpImpliesResult(result.satisfiable, result.substitution)
 
-def eclp_impl_component_valid(rs: ReachabilitySystem, antecedent: ECLP, consequent: ECLP, j: int) -> bool:
-    antec_j = antecedent.clp.lp.patterns[j]
-    conseq_j = consequent.clp.lp.patterns[j]
-    ex_conseq_j : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, conseq_j)
-    return rs.kcs.client.implies(antec_j, ex_conseq_j).satisfiable
+#def eclp_impl_component_valid(rs: ReachabilitySystem, antecedent: ECLP, consequent: ECLP, j: int) -> bool:
+#    antec_j = antecedent.clp.lp.patterns[j]
+#    conseq_j = consequent.clp.lp.patterns[j]
+#    ex_conseq_j : Pattern = reduce(lambda p, var: Exists(rs.top_sort, var, p), consequent.vars, conseq_j)
+#    _LOGGER.debug(f"conseq_j: {ex_conseq_j}")
+#    valid = rs.kcs.client.implies(antec_j, ex_conseq_j).satisfiable
+#    return valid
 
 
-def eclps_approx(rs: ReachabilitySystem,  eclps : List[ECLP]) -> ECLP:
+def eclps_approx(rs: ReachabilitySystem, eclps : List[ECLP], arity : int) -> List[Pattern]:
     variables : List[EVar] = []
     for eclp in eclps:
         for v in eclp.vars:
             if v not in variables:
                 variables.append(v)
 
-    patterns : List[Pattern] = []
-    for j in range(len(eclps)):
+    patterns : List[Pattern] = [Bottom(rs.top_sort) for _ in range(arity)]
+    for j in range(arity):
         projected : List[Pattern] = list(map(lambda eclp: eclp.clp.lp.patterns[j], eclps))
-        top_pat : Pattern = Top(rs.top_sort)
+        top_pat : Pattern = Bottom(rs.top_sort)
         disjunction : Pattern = reduce(lambda a,b : Or(rs.top_sort, a, b), projected, top_pat)
-        patterns.append(disjunction)
-    return ECLP(
-        vars=variables,
-        clp=CLP(
-            lp=LP(
-                patterns=patterns
-            ),
-            constraint=Top(rs.top_sort)
-        )
-    )
+        ex_disj = reduce(lambda p, var: Exists(rs.top_sort, var, p), variables, disjunction)
+        patterns[j] = ex_disj
+        continue
+    return patterns
 
 # But this will have a problem with predicate patterns
 def rename_vars(renaming: Dict[str, str], phi: Pattern) -> Pattern:
@@ -639,7 +635,7 @@ class VerifyGoal:
     user_cutpoint_blacklist : List[ECLP]
     stuck : List[bool]
 
-    target_approximation : ECLP
+    target_approximation : List[Pattern]
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
@@ -650,7 +646,7 @@ class VerifyGoal:
             flushed_cutpoints=list(map(ECLP.from_dict, dct['flushed_cutpoints'])),
             user_cutpoint_blacklist=list(map(ECLP.from_dict, dct['user_cutpoint_blacklist'])),
             stuck=list(map(lambda s: bool(s), dct['stuck'])),
-            target_approximation=ECLP.from_dict(dct['target_approximation'])
+            target_approximation=list(map(lambda p: Pattern.from_dict(p), dct['target_approximation']))
         )
     
     @property
@@ -662,7 +658,7 @@ class VerifyGoal:
             'flushed_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
             'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
             'stuck' : self.stuck,
-            'target_approximation' : self.target_approximation.dict
+            'target_approximation' : list(map(lambda p: p.dict, self.target_approximation))
         }
 
     def is_fully_stuck(self) -> bool:
@@ -780,9 +776,9 @@ class Verifier:
         self,
         flushed_cutpoints : List[ECLP],
         user_cutpoint_blacklist : List[ECLP],
-        ) -> ECLP:
+        ) -> List[Pattern]:
         usable_user_cutpoints : List[ECLP] = [eclp for eclp in self.user_cutpoints if eclp not in user_cutpoint_blacklist]
-        return eclps_approx(self.rs, usable_user_cutpoints + flushed_cutpoints + [self.consequent])
+        return eclps_approx(self.rs, usable_user_cutpoints + flushed_cutpoints + [self.consequent], arity=self.arity)
 
     def dump(self) -> str:
         return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True, indent=4)
@@ -918,7 +914,7 @@ class Verifier:
                 # We filter [user_cutpoints] to prevent infinite loops
                 antecedentC = usable_cutpoints[0][0]
                 antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
-                _LOGGER.debug(f'New cutpoint: {antecedentCrenamed}')
+                #_LOGGER.debug(f'New cutpoint: {antecedentCrenamed}')
                 ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
                 ic = goal.instantiated_cutpoints + [antecedentCrenamed]
                 new_goals.append(VerifyGoal(
@@ -939,6 +935,27 @@ class Verifier:
         q.goals = new_goals
         return
 
+
+    def approx_implies_something(self,
+        pattern_j : Pattern,
+        j: int,
+        flushed_cutpoints : List[ECLP],
+        user_cutpoint_blacklist : List[ECLP]
+        ) -> bool:
+        usable_user_cutpoints : List[ECLP] = [eclp for eclp in self.user_cutpoints if eclp not in user_cutpoint_blacklist]
+        what = usable_user_cutpoints + flushed_cutpoints + [self.consequent]
+        for eclp in what:
+            phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
+            try:
+                if self.rs.kcs.client.implies(pattern_j, phi).satisfiable:
+                    return True
+            except:
+                _LOGGER.error("Implies exception. LHS, RHS follows.")
+                _LOGGER.error(self.rs.kprint.kore_to_pretty(pattern_j))
+                _LOGGER.error(self.rs.kprint.kore_to_pretty(phi))
+                raise
+        return False
+
     def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
         _LOGGER.info(f"Question {idx} in direction {j}. Goals: {len(q.goals)}")
         new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
@@ -951,23 +968,25 @@ class Verifier:
 
             pattern_j : Pattern = goal.antecedent.clp.lp.patterns[j]
             reason : StopReason = StopReason.DEPTH_BOUND
-            max_iter = 10
+            max_iter = 3
             curr_iter = 0
             while curr_iter < max_iter:
                 step_result : ExecuteResult = self.rs.kcs.client.execute(pattern=pattern_j, max_depth=1)
                 reason = step_result.reason
                 if reason != StopReason.DEPTH_BOUND:
                     break
+                #_LOGGER.info(f"Maybe stepping again? {goal.target_approximation[j]}")
                 curr_iter = curr_iter + 1
                 pattern_j = step_result.state.kore
                 newantecedent0 : ECLP = goal.antecedent.copy()
                 newantecedent0.clp.lp.patterns[j] = pattern_j
-                if eclp_impl_component_valid(self.rs, newantecedent0, goal.target_approximation, j=j):
+                if self.approx_implies_something(pattern_j=pattern_j, j=j, flushed_cutpoints=goal.flushed_cutpoints, user_cutpoint_blacklist=goal.user_cutpoint_blacklist):
                     break
                 if curr_iter < max_iter:
                     _LOGGER.info("stepping again")
 
             if step_result.reason == StopReason.STUCK:
+                # FIXME the comment below is stale
                 # Cannot make progres with one goal in the question.
                 # Since we need to solve all the goals, this means that the question has no solution.
                 # We would prefer not to reach this dead end again, so we want to write to the hypercube
@@ -975,9 +994,11 @@ class Verifier:
                 _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: stuck")
                 new_stuck = goal.stuck.copy()
                 new_stuck[j] = True
+                newantecedent1 : ECLP = goal.antecedent.copy()
+                newantecedent1.clp.lp.patterns[j] = pattern_j
                 new_goal = VerifyGoal(
                     goal_id=self.fresh_goal_id(),
-                    antecedent=goal.antecedent,
+                    antecedent=newantecedent1,
                     instantiated_cutpoints=goal.instantiated_cutpoints,
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
@@ -992,7 +1013,7 @@ class Verifier:
                 # We made a step, so we can flush the circularities/instantiated cutpoints
                 _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: progress")
                 newantecedent : ECLP = goal.antecedent.copy()
-                newantecedent.clp.lp.patterns[j] = step_result.state.kore
+                newantecedent.clp.lp.patterns[j] = pattern_j
                 fc = goal.instantiated_cutpoints + goal.flushed_cutpoints
                 new_q.goals.append(VerifyGoal(
                     goal_id=self.fresh_goal_id(),
