@@ -582,12 +582,22 @@ def vecrange(k, b):
             yield r
     return
 
+def targeted_range(target: List[int]):
+    current = [0 for _ in target]
+    for j in range(len(target)):
+        while (current[j] < target[j]):
+            yield current
+            current[j] = current[j] + 1
+        current[j] = target[j]
+    return
+
 @final
 @dataclass
 class VerifySettings:
     check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
     goal_as_cutpoint : bool
     max_depth : int
+    target : Optional[List[int]]
 
 @dataclass
 class VerifyGoal:
@@ -682,8 +692,16 @@ class Verifier:
         self.last_goal_id = self.last_goal_id + 1
         return self.last_goal_id
 
+    def get_range(self):
+        if self.settings.target is None:
+            return vecrange(self.arity, self.settings.max_depth)
+        else:
+            return targeted_range(self.settings.target)
+
+
     def verify(self) -> VerifyResult:
-        for idx in vecrange(self.arity, self.settings.max_depth):
+        r = self.get_range()
+        for idx in r:
             #_LOGGER.debug(f"idx: {idx}")
             if self.advance_proof(idx):
                 return VerifyResult(proved=True, final_states=[])
@@ -745,7 +763,7 @@ class Verifier:
             if goal.is_fully_stuck():
                 continue
 
-            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, directions {len([True for b in goal.stuck if not b])}")
+            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, directions {len([True for b in goal.stuck if not b])}, flushed cutpoints {len(goal.flushed_cutpoints)}")
             
             implies_result = self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.consequent)
             if implies_result.valid:
@@ -765,7 +783,7 @@ class Verifier:
                 for (antecedentC, result) in flushed_cutpoints_with_subst
                 if result.valid
             ]
-            if (len(list(usable_flushed_cutpoints)) > 0):
+            if (len(usable_flushed_cutpoints) > 0):
                 # Conseq, Axiom
                 _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (using flushed cutpoint)')
                 continue
@@ -796,8 +814,8 @@ class Verifier:
                 antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
                 new_goals.append(VerifyGoal(
                     goal_id=new_goal_id,
-                    antecedent=antecedentC,
-                    instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentCrenamed.with_no_vars()],
+                    antecedent=antecedentC.with_no_vars(),
+                    instantiated_cutpoints=goal.instantiated_cutpoints + [antecedentCrenamed],
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints)),
                     stuck=goal.stuck.copy()

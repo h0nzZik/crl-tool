@@ -9,6 +9,8 @@ from pathlib import Path
 
 from typing import (
     Final,
+    Optional,
+    List,
     Tuple,
 )
 
@@ -79,6 +81,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_prove.add_argument('--specification', required=True)
     subparser_prove.add_argument('--depth', type=int, default=10)
     subparser_prove.add_argument('--no-print', action='store_true')
+    subparser_prove.add_argument('--target', nargs='+', help='<Required> Set flag', default=None)
 
     subparser_simplify = subparsers.add_parser('simplify', help='Simplify a pattern')
     subparser_simplify.add_argument('--pattern', required=True)
@@ -153,10 +156,14 @@ def eclp_to_pretty(rs: ReachabilitySystem, eclp: ECLP):
 def prove(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
+        tgt : Optional[List[int]] = None
+        if args['target'] is not None:
+            tgt = list(map(lambda s: int(s), args['target']))
         settings = VerifySettings(
             check_eclp_impl_valid=eclp_impl_valid_trough_lists,
             max_depth=int(args['depth']),
             goal_as_cutpoint=True,
+            target=tgt
         )
         _LOGGER.info("Going to call `verify`")
         result : VerifyResult = verify(
