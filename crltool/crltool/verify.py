@@ -499,23 +499,6 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
 #    return valid
 
 
-def eclps_approx(rs: ReachabilitySystem, eclps : List[ECLP], arity : int) -> List[Pattern]:
-    variables : List[EVar] = []
-    for eclp in eclps:
-        for v in eclp.vars:
-            if v not in variables:
-                variables.append(v)
-
-    patterns : List[Pattern] = [Bottom(rs.top_sort) for _ in range(arity)]
-    for j in range(arity):
-        projected : List[Pattern] = list(map(lambda eclp: eclp.clp.lp.patterns[j], eclps))
-        top_pat : Pattern = Bottom(rs.top_sort)
-        disjunction : Pattern = reduce(lambda a,b : Or(rs.top_sort, a, b), projected, top_pat)
-        ex_disj = reduce(lambda p, var: Exists(rs.top_sort, var, p), variables, disjunction)
-        patterns[j] = ex_disj
-        continue
-    return patterns
-
 # But this will have a problem with predicate patterns
 def rename_vars(renaming: Dict[str, str], phi: Pattern) -> Pattern:
     match phi:
@@ -635,8 +618,6 @@ class VerifyGoal:
     user_cutpoint_blacklist : List[ECLP]
     stuck : List[bool]
 
-    target_approximation : List[Pattern]
-
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
         return VerifyGoal(
@@ -645,8 +626,7 @@ class VerifyGoal:
             instantiated_cutpoints=list(map(ECLP.from_dict, dct['instantiated_cutpoints'])),
             flushed_cutpoints=list(map(ECLP.from_dict, dct['flushed_cutpoints'])),
             user_cutpoint_blacklist=list(map(ECLP.from_dict, dct['user_cutpoint_blacklist'])),
-            stuck=list(map(lambda s: bool(s), dct['stuck'])),
-            target_approximation=list(map(lambda p: Pattern.from_dict(p), dct['target_approximation']))
+            stuck=list(map(lambda s: bool(s), dct['stuck']))
         )
     
     @property
@@ -657,8 +637,7 @@ class VerifyGoal:
             'instantiated_cutpoints' : list(map(lambda eclp: eclp.dict, self.instantiated_cutpoints)),
             'flushed_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
             'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
-            'stuck' : self.stuck,
-            'target_approximation' : list(map(lambda p: p.dict, self.target_approximation))
+            'stuck' : self.stuck
         }
 
     def is_fully_stuck(self) -> bool:
@@ -763,7 +742,6 @@ class Verifier:
                     flushed_cutpoints=[],
                     user_cutpoint_blacklist=[],
                     stuck=[False for _ in range(arity)],
-                    target_approximation=self.compute_target_approximation(flushed_cutpoints=[], user_cutpoint_blacklist=[])
                 )],
                 source_of_question=None,
                 depth=zero_idx,
@@ -772,13 +750,6 @@ class Verifier:
             processed=False,
         )
 
-    def compute_target_approximation(
-        self,
-        flushed_cutpoints : List[ECLP],
-        user_cutpoint_blacklist : List[ECLP],
-        ) -> List[Pattern]:
-        usable_user_cutpoints : List[ECLP] = [eclp for eclp in self.user_cutpoints if eclp not in user_cutpoint_blacklist]
-        return eclps_approx(self.rs, usable_user_cutpoints + flushed_cutpoints + [self.consequent], arity=self.arity)
 
     def dump(self) -> str:
         return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True, indent=4)
@@ -924,10 +895,6 @@ class Verifier:
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=ucp,
                     stuck=goal.stuck.copy(),
-                    target_approximation=self.compute_target_approximation(
-                        flushed_cutpoints=goal.flushed_cutpoints,
-                        user_cutpoint_blacklist=ucp
-                    )
                 ))
                 continue
             new_goals.append(goal)
@@ -975,7 +942,6 @@ class Verifier:
                 reason = step_result.reason
                 if reason != StopReason.DEPTH_BOUND:
                     break
-                #_LOGGER.info(f"Maybe stepping again? {goal.target_approximation[j]}")
                 curr_iter = curr_iter + 1
                 pattern_j = step_result.state.kore
                 newantecedent0 : ECLP = goal.antecedent.copy()
@@ -1003,7 +969,6 @@ class Verifier:
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
                     stuck=new_stuck,
-                    target_approximation=goal.target_approximation
                 )
                 new_q.goals.append(new_goal)
                 continue
@@ -1022,10 +987,6 @@ class Verifier:
                     flushed_cutpoints=fc,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
                     stuck=goal.stuck.copy(),
-                    target_approximation=self.compute_target_approximation(
-                        flushed_cutpoints=fc,
-                        user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
-                    )
                 ))
                 continue
             
@@ -1050,7 +1011,6 @@ class Verifier:
                         flushed_cutpoints=goal.flushed_cutpoints,
                         user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
                         stuck=goal.stuck.copy(),
-                        target_approximation=goal.target_approximation,
                     ))
                     continue
                 continue
