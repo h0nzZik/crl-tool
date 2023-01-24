@@ -896,6 +896,7 @@ class Verifier:
         new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
         for goal in q.goals:
             if (goal.stuck[j]):
+                new_q.goals.append(goal)
                 continue
 
             #_LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}")

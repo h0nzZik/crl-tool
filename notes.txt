@@ -1,0 +1,3 @@
+# At [10,10] there are two goals: one where we need to use normal reachability logic,
+# and one where we need to eventually apply the circularity.
+#crl-tool --definition ./test/.tmp/build/imp/imp-kompiled/ view-dump --from dump.json --target 10 10
