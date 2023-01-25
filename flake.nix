@@ -31,6 +31,7 @@
             propagatedBuildInputs = [
               python-pyk
               python.pkgs.setuptools
+              python.pkgs.pygtrie
             ];
             postInstall = ''
               substituteInPlace $out/lib/*/site-packages/crltool/kcommands.py \
