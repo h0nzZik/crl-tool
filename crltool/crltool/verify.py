@@ -568,6 +568,8 @@ class VerifyGoal:
     user_cutpoint_blacklist : List[ECLP]
     stuck : List[bool]
     total_steps : List[int]
+    #max_depth : List[int]
+    component_matches_something : List[bool]
 
     was_processed_by_advance_general : bool = False
 
@@ -581,7 +583,9 @@ class VerifyGoal:
             user_cutpoint_blacklist=list(map(ECLP.from_dict, dct['user_cutpoint_blacklist'])),
             stuck=list(map(lambda s: bool(s), dct['stuck'])),
             total_steps=dct['total_steps'],
-            was_processed_by_advance_general=dct['was_processed_by_advance_general']
+            #max_depth=dct['max_depth'],
+            was_processed_by_advance_general=dct['was_processed_by_advance_general'],
+            component_matches_something=dct['component_matches_something']
         )
     
     @property
@@ -594,7 +598,9 @@ class VerifyGoal:
             'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
             'stuck' : self.stuck,
             'total_steps' : self.total_steps,
-            'was_processed_by_advance_general' : self.was_processed_by_advance_general
+            #'max_depth' : self.max_depth,
+            'was_processed_by_advance_general' : self.was_processed_by_advance_general,
+            'component_matches_something' : self.component_matches_something
         }
 
     def is_fully_stuck(self) -> bool:
@@ -617,7 +623,8 @@ class VerifyQuestion:
     # and we do not want to 
     goals : List[VerifyGoal]
     depth : List[int]
-    source_of_question : Optional[List[int]] # index, or nothing for initial
+    #source_of_question : Optional[List[int]] # index, or nothing for initial
+    try_stepping : bool
 
 
     @staticmethod
@@ -625,6 +632,7 @@ class VerifyQuestion:
         return VerifyQuestion(
             goals=list(map(VerifyGoal.from_dict, dct['goals'])),
             depth=dct['depth'],
+            try_stepping=dct['try_stepping'],
             source_of_question=None
         )
     
@@ -633,6 +641,7 @@ class VerifyQuestion:
         return {
             'goals' : list(map(lambda g: g.dict, self.goals)),
             'depth' : self.depth,
+             'try_stepping' : self.try_stepping,
         }
 
     #def is_worth_trying(self) -> bool:
@@ -640,7 +649,7 @@ class VerifyQuestion:
 
 @dataclass
 class VerifyEntry:
-    question : Optional[VerifyQuestion]
+    question : VerifyQuestion
     index : Optional[List[int]]
     processed : bool
 
@@ -648,7 +657,7 @@ class VerifyEntry:
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyEntry':
         q0 = dct['question']
-        q1 = None if q0 is None else VerifyQuestion.from_dict(q0)
+        q1 = VerifyQuestion.from_dict(q0)
         return VerifyEntry(
             question = q1,
             index = dct['index'],
@@ -658,9 +667,9 @@ class VerifyEntry:
     @property
     def dict(self) -> Dict[str, Any]:
         return {
-            'question' : None if self.question is None else self.question.dict,
+            'question' : self.question.dict,
             'index' : self.index,
-            'processed' : self.processed
+            'processed' : self.processed,
         }
 
 @final
@@ -705,11 +714,21 @@ def add_on_position(l: List[int], j: int, m: int) -> List[int]:
     l2[j] += m
     return l2
 
+@dataclass
+class Projection:
+    pattern : Pattern
+    depth : int
+    stuck : bool
+    matches : bool
+    instantiated_cutpoints : List[ECLP]
+    flushed_cutpoints : List[ECLP]
+    user_cutpoint_blacklist : List[ECLP]
+    projected_from : VerifyGoal
 
 #@dataclass # ???
 class Verifier:
     settings: VerifySettings
-    user_cutpoints : Map[str, ECLP]
+    user_cutpoints : Dict[str, ECLP]
     rs: ReachabilitySystem
     arity : int
     consequent : ECLP
@@ -738,7 +757,7 @@ class Verifier:
 
     ps = PerformanceStatistics()
 
-    def __init__(self, settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, arity: int, antecedent : ECLP, consequent: ECLP):
+    def __init__(self, settings: VerifySettings, user_cutpoints : Dict[str, ECLP], rs: ReachabilitySystem, arity: int, antecedent : ECLP, consequent: ECLP):
         self.settings = settings
         self.rs = rs
         self.arity = arity
@@ -756,7 +775,10 @@ class Verifier:
                     flushed_cutpoints=[],
                     user_cutpoint_blacklist=[],
                     stuck=[False for _ in range(arity)],
-                    total_steps=zero_idx.copy()
+                    try_stepping = True,
+                    #max_depth = [self.settings.max_depth for _ in range(arity)],
+                    component_matches_something=[False for _ in range(arity)],
+                    total_steps=index_zero()
                 )],
                 source_of_question=None,
                 depth=index_zero(),
@@ -766,8 +788,8 @@ class Verifier:
         )
 
 
-    def dump(self) -> str:
-        return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True, indent=4)
+    #def dump(self) -> str:
+    #    return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True, indent=4)
 
     def fresh_goal_id(self) -> int:
         self.last_goal_id = self.last_goal_id + 1
@@ -787,15 +809,15 @@ class Verifier:
                 return VerifyResult(proved=True, final_states=[])
             self.trie.pop(item.key)
             continue
-        return VerifyResult(proved=False, final_states=map(lambda e: e.question, self.failed_attempts))
+        return VerifyResult(proved=False, final_states=[e.question for e in self.failed_attempts if e.question is not None])
+    
     
     # Takes an index of a proof state in the hypercube
     # and tries to advance the proof state, possibly generating more entries in the hypercube
     def advance_proof(self, idx: Any) -> bool:
         _LOGGER.info(f"Advance_proof on {idx}. Total unprocessed: {len(self.unprocessed())}")
         e : VerifyEntry = self.trie[idx]
-        assert e.question is not None
-        e.index = idx
+        #e.index = idx
 
         _LOGGER.debug(f"Steps on goals: {list(map(lambda g: g.total_steps, e.question.goals))}")
         apgresult = self.advance_proof_general(idx=idx, q=e.question)
@@ -804,37 +826,25 @@ class Verifier:
                 _LOGGER.info("Succeeded (advance_proof_general returned True).")
                 return True
     
-            in_all_directions : List[List[Tuple[Projection, bool]]] = []
-            # Try every possible direction
+            if not e.question.try_stepping:
+                return False
+    
+            in_all_directions : List[List[Projection]] = self.advance_in_all_directions(idx, e)
             for j in range(0, self.arity):
-                _LOGGER.debug(f"From {idx} in direction {j}")
-                index_component = add_on_position(([0] * self.arity), j, 1)
-                idx_of_next = index_append_steps(idx, index_component)
-                # We have already computed this, probably from a different side, so do not compute it again.
-                # Note that previously we might have computed more steps from some side `j2`.
-                # In that case it will happen that we will not continue in the direction `j` although we could.
-                # I think it is not a problem, because we will eventually hit the position `idx_of_next` directly
-                # and therefore we will try to explore it. (Note that we sometimes remove things from the trie,
-                # but we will remove only `idx` in this call, and not `idx_of_next`, which is different)
-                if idx_of_next in self.trie:
-                    assert idx != idx_of_next
-                    continue
+                #new_questions = []
+                new_with_j_fixed : List[VerifyGoal] = []
+                for proj in in_all_directions[j]:
+                    if proj.projected_from.component_matches_something[j]:
+                        antecedent = proj.projected_from.antecedent.copy()
+                        antecedent.clp.lp.patterns[j] = proj.pattern
+                        new_g : VerifyGoal = VerifyGoal(
+                            goal_id=self.fresh_goal_id(),
+                            antecedent=antecedent,
+                            
+                        )
+                pass
 
-                components : List[Projection] = [
-                    Projection(
-                        pattern=g.antecedent.clp.lp.patterns[j],
-                        depth=g.total_steps[j],
-                        stuck=g.stuck[j],
-                        user_cutpoint_blacklist=g.user_cutpoint_blacklist,
-                        instantiated_cutpoints=g.instantiated_cutpoints,
-                        flushed_cutpoints=g.flushed_cutpoints,
-                    )
-                    for g in e.question.goals
-                ]
-                cr = self.advance_components_in_direction(components=components, j=j)
-                in_all_directions.append(cr)
-                continue
-
+            # TODO what now?
             e.processed = True
             return False
             pass
@@ -844,6 +854,45 @@ class Verifier:
             assert new_index not in self.trie
             self.trie[new_index] = new_entry
             return False
+
+    #def combine_projections
+
+    def advance_in_all_directions(self, idx: Any, e : VerifyEntry) -> List[List[Tuple[Projection, bool]]]:
+        in_all_directions : List[List[Tuple[Projection, bool]]] = []
+        # Try every possible direction
+        for j in range(0, self.arity):
+            _LOGGER.debug(f"From {idx} in direction {j}")
+            index_component = add_on_position(([0] * self.arity), j, 1)
+            idx_of_next = index_append_steps(idx, index_component)
+            # FIXME the comment below is stale
+            # We have already computed this, probably from a different side, so do not compute it again.
+            # Note that previously we might have computed more steps from some side `j2`.
+            # In that case it will happen that we will not continue in the direction `j` although we could.
+            # I think it is not a problem, because we will eventually hit the position `idx_of_next` directly
+            # and therefore we will try to explore it. (Note that we sometimes remove things from the trie,
+            # but we will remove only `idx` in this call, and not `idx_of_next`, which is different)
+            if idx_of_next in self.trie:
+                assert idx != idx_of_next
+                continue
+
+            components : List[Projection] = [
+                Projection(
+                    pattern=g.antecedent.clp.lp.patterns[j],
+                    depth=g.total_steps[j],
+                    stuck=g.stuck[j],
+                    projected_from=g,
+                    # TODO remove these three elements since they are accessible using `projected_from`
+                    user_cutpoint_blacklist=g.user_cutpoint_blacklist,
+                    instantiated_cutpoints=g.instantiated_cutpoints,
+                    flushed_cutpoints=g.flushed_cutpoints,
+                )
+                for g in e.question.goals
+            ]
+            cr = self.advance_components_in_direction(components=components, j=j)
+            in_all_directions.append(cr)
+            continue
+        return in_all_directions
+
 
     def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
         old = time.perf_counter()
@@ -970,23 +1019,14 @@ class Verifier:
             self.sscache[pattern.__hash__()] = 1
         return step_result
 
-    @dataclass
-    class Projection:
-        pattern : Pattern
-        depth : int
-        stuck : bool
-        instantiated_cutpoints : List[ECLP]
-        flushed_cutpoints : List[ECLP]
-        user_cutpoint_blacklist : List[ECLP]
+
 
     # the bool means whether a progress (symbolic step) was made
-    def advance_components_in_direction(self, components: List[Projection], j: int) -> List[Tuple[Projection, bool]]:
+    def advance_components_in_direction(self, components: List[Projection], j: int, keep_old = True) -> List[Projection]:
         _LOGGER.info(f"Adancing on lis of patterns of lenght {len(components)} in direction {j}.")
         incr_depth = 0
-        component_already_made_progress : List[bool] = [False for _ in components]
         while True:
             new_components : List[Projection] = []
-            component_made_progress : List[bool] = []
             stop_at_this_depth = False
             for i in range(len(components)):
                 curr_proj : Projection = components[i]
@@ -994,7 +1034,7 @@ class Verifier:
                 if curr_proj.stuck:
                     new_components.append(curr_proj)
                     continue
-                made_progress = True
+                
                 step_result : ExecuteResult = self.symbolic_step(curr_proj.pattern)
                 if step_result.reason == StopReason.BRANCHING:
                     assert(step_result.next_states is not None)
@@ -1005,34 +1045,39 @@ class Verifier:
                         new_proj : Projection = Projection(
                             pattern=b,
                             depth=curr_proj.depth+incr_depth,
-                            stuck=False,
+                            stuck=curr_proj.stuck, # probably False
+                            matches=curr_proj.matches,
                             instantiated_cutpoints=curr_proj.instantiated_cutpoints,
                             flushed_cutpoints=curr_proj.flushed_cutpoints,
                             user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist,
                         )
                         new_components.append(new_proj)
-                        component_made_progress.append(component_already_made_progress[i])
                     continue
                 if step_result.reason == StopReason.DEPTH_BOUND:
                     _LOGGER.info(f"Progress in incr_depth {incr_depth}")
                     p : Pattern = step_result.state.kore
-                    new_proj : Projection = Projection(
-                        pattern=p,
-                        depth=curr_proj.depth+incr_depth,
-                        stuck=False,
-                        instantiated_cutpoints=[],
-                        flushed_cutpoints=(curr_proj.flushed_cutpoints + curr_proj.instantiated_cutpoints),
-                        user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist,
-                    )
-                    new_components.append(new_proj)
-                    component_made_progress.append(True)
 
-                    if self.approx_implies_something(
+                    matches : bool = self.approx_implies_something(
                         pattern_j=p,
                         j=j,
                         flushed_cutpoints=curr_proj.flushed_cutpoints,
                         user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist
-                        ):
+                    )
+
+                    new_proj : Projection = Projection(
+                        pattern=p,
+                        depth=curr_proj.depth+incr_depth,
+                        stuck=False,
+                        matches=matches,
+                        instantiated_cutpoints=[],
+                        flushed_cutpoints=(curr_proj.flushed_cutpoints + curr_proj.instantiated_cutpoints),
+                        user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist,
+                    )
+                    if keep_old:
+                        new_components.append(curr_proj)
+                    new_components.append(new_proj)
+
+                    if matches:
                         stop_at_this_depth = True
                     continue
 
@@ -1042,25 +1087,24 @@ class Verifier:
                         pattern=curr_proj.pattern,
                         depth=curr_proj.depth,
                         stuck=True,
+                        matches=curr_proj.matches,
                         instantiated_cutpoints=curr_proj.instantiated_cutpoints,
                         flushed_cutpoints=curr_proj.flushed_cutpoints,
                         user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist,
                     )
                     new_components.append(new_proj)
-                    component_made_progress.append(component_already_made_progress[i])
 
                 _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
                 raise RuntimeError()
 
             components = new_components
-            component_already_made_progress = component_made_progress
 
             if stop_at_this_depth:
-                return zip(components, component_already_made_progress)
+                return components
             if any([c.depth >= self.settings.max_depth for c in components]):
-                return zip(components, component_already_made_progress)
+                return components
             if all([c.stuck for c in components]):
-                return zip(components, component_already_made_progress)
+                return components
             continue
 
 
