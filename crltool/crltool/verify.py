@@ -6,11 +6,12 @@ import pygtrie # type: ignore
 from dataclasses import dataclass
 
 from functools import (
-    reduce
+    reduce,
 )
 
 from itertools import (
-    chain
+    chain,
+    product,
 )
 
 from typing import (
@@ -859,6 +860,67 @@ class Verifier:
             assert new_index not in self.trie
             self.trie[new_index] = new_entry
             return False
+
+    def list_of_cut_elements_to_goal(self, goal: VerifyGoal, cut_elements: List[CutElement]) -> VerifyGoal:
+        assert(len(cut_elements) == self.arity)
+        goal_id = self.fresh_goal_id()
+        antecedent = ECLP(
+            vars = [],
+            clp = CLP(
+                constraint = goal.antecedent.clp.constraint,
+                lp = LP (
+                    patterns = list(map(lambda ce: ce.phi, cut_elements))
+                )
+            )
+        )
+        
+        progress : bool = any([ce.progress_from_initial for ce in cut_elements])
+        flushed_cutpoints : Dict[str,ECLP] = self.new_flushed_cutpoints(
+            instantiated_cutpoints=goal.instantiated_cutpoints,
+            flushed_cutpoints=goal.flushed_cutpoints,
+            progress=progress,
+        )
+        instantiated_cutpoints : Dict[str,ECLP] = self.new_instantiated_cutpoints(
+            instantiated_cutpoints=goal.instantiated_cutpoints,
+            flushed_cutpoints=goal.flushed_cutpoints,
+            progress=progress,
+        )
+        user_cutpoint_blacklist : List[str] = goal.user_cutpoint_blacklist
+        stuck : List[bool] = [ce.stuck for ce in cut_elements]
+        total_steps : List[int] = [ce.depth for ce in cut_elements]
+        component_matches_something : List[bool] = [ce.matches for ce in cut_elements]
+
+        return VerifyGoal(
+            goal_id=goal_id,
+            antecedent=antecedent,
+            flushed_cutpoints=flushed_cutpoints,
+            instantiated_cutpoints=instantiated_cutpoints,
+            user_cutpoint_blacklist=user_cutpoint_blacklist,
+            stuck=stuck,
+            total_steps=total_steps,
+            component_matches_something=component_matches_something,
+        )
+
+    def combine_cuts(self, goal: VerifyGoal, cuts: List[List[CutElement]]) -> None:
+        combined : List[VerifyGoal] = []
+        # Those are the obvious ones.
+        combinations = list(product(*cuts))
+        # TODO maybe we have to filter out those where there was no progress_from_initial?
+        # But we also have to explore the ones for which some, but not all, components remain the same.
+        # (The 'all components are the same' is the current situation, and we have already checked that
+        #  using `advance_proof_general`.)
+        non_obvious_combinations = []
+
+        # `j` is the index that we keep constant, as in the 'goal'
+        for j in range(self.arity):
+            for combination in combinations:
+                # `jprime` is the index that we muta
+                for jprime in range(self.arity):
+                    if jprime == j:
+                        continue
+                
+
+        pass
 
 
     def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
