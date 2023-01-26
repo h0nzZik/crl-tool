@@ -563,9 +563,9 @@ class VerifySettings:
 class VerifyGoal:
     goal_id : int
     antecedent : ECLP
-    instantiated_cutpoints : List[ECLP]
-    flushed_cutpoints : List[ECLP]
-    user_cutpoint_blacklist : List[ECLP]
+    instantiated_cutpoints : Dict[str,ECLP]
+    flushed_cutpoints : Dict[str,ECLP]
+    user_cutpoint_blacklist : List[str]
     stuck : List[bool]
     total_steps : List[int]
     #max_depth : List[int]
@@ -578,9 +578,9 @@ class VerifyGoal:
         return VerifyGoal(
             goal_id=int(dct['goal_id']),
             antecedent=ECLP.from_dict(dct['antecedent']),
-            instantiated_cutpoints=list(map(ECLP.from_dict, dct['instantiated_cutpoints'])),
-            flushed_cutpoints=list(map(ECLP.from_dict, dct['flushed_cutpoints'])),
-            user_cutpoint_blacklist=list(map(ECLP.from_dict, dct['user_cutpoint_blacklist'])),
+            instantiated_cutpoints={k : ECLP.from_dict(dct['instantiated_cutpoints'][k]) for k in dct['instantiated_cutpoints']},
+            flushed_cutpoints={k : ECLP.from_dict(dct['flushed_cutpoints'][k]) for k in dct['flushed_cutpoints']},
+            user_cutpoint_blacklist=dct['user_cutpoint_blacklist'],
             stuck=list(map(lambda s: bool(s), dct['stuck'])),
             total_steps=dct['total_steps'],
             #max_depth=dct['max_depth'],
@@ -593,9 +593,9 @@ class VerifyGoal:
         return {
             'goal_id' : self.goal_id,
             'antecedent' : self.antecedent.dict,
-            'instantiated_cutpoints' : list(map(lambda eclp: eclp.dict, self.instantiated_cutpoints)),
-            'flushed_cutpoints' : list(map(lambda eclp: eclp.dict, self.flushed_cutpoints)),
-            'user_cutpoint_blacklist' : list(map(lambda eclp: eclp.dict, self.user_cutpoint_blacklist)),
+            'instantiated_cutpoints' : {k : self.instantiated_cutpoints[k].dict for k in self.instantiated_cutpoints},
+            'flushed_cutpoints' : {k : self.flushed_cutpoints[k].dict for k in self.flushed_cutpoints},
+            'user_cutpoint_blacklist' : self.user_cutpoint_blacklist,
             'stuck' : self.stuck,
             'total_steps' : self.total_steps,
             #'max_depth' : self.max_depth,
@@ -633,7 +633,6 @@ class VerifyQuestion:
             goals=list(map(VerifyGoal.from_dict, dct['goals'])),
             depth=dct['depth'],
             try_stepping=dct['try_stepping'],
-            source_of_question=None
         )
     
     @property
@@ -725,6 +724,15 @@ class Projection:
     user_cutpoint_blacklist : List[ECLP]
     projected_from : VerifyGoal
 
+
+@dataclass
+class CutElement:
+    phi : Pattern
+    matches : bool
+    depth : int
+    stuck : bool
+    progress_from_initial : bool
+
 #@dataclass # ???
 class Verifier:
     settings: VerifySettings
@@ -771,16 +779,15 @@ class Verifier:
                 goals=[VerifyGoal(
                     goal_id = 0,
                     antecedent=antecedent,
-                    instantiated_cutpoints=[],
-                    flushed_cutpoints=[],
+                    instantiated_cutpoints=dict(),
+                    flushed_cutpoints=dict(),
                     user_cutpoint_blacklist=[],
                     stuck=[False for _ in range(arity)],
-                    try_stepping = True,
                     #max_depth = [self.settings.max_depth for _ in range(arity)],
                     component_matches_something=[False for _ in range(arity)],
                     total_steps=index_zero()
                 )],
-                source_of_question=None,
+                try_stepping=True,
                 depth=index_zero(),
             ),
             index = index_zero(),
@@ -815,7 +822,7 @@ class Verifier:
     # Takes an index of a proof state in the hypercube
     # and tries to advance the proof state, possibly generating more entries in the hypercube
     def advance_proof(self, idx: Any) -> bool:
-        _LOGGER.info(f"Advance_proof on {idx}. Total unprocessed: {len(self.unprocessed())}")
+        _LOGGER.info(f"Advance_proof on {idx}. Total unprocessed: {len(self.trie)}")
         e : VerifyEntry = self.trie[idx]
         #e.index = idx
 
@@ -828,23 +835,21 @@ class Verifier:
     
             if not e.question.try_stepping:
                 return False
-    
-            in_all_directions : List[List[Projection]] = self.advance_in_all_directions(idx, e)
-            for j in range(0, self.arity):
-                #new_questions = []
-                new_with_j_fixed : List[VerifyGoal] = []
-                for proj in in_all_directions[j]:
-                    if proj.projected_from.component_matches_something[j]:
-                        antecedent = proj.projected_from.antecedent.copy()
-                        antecedent.clp.lp.patterns[j] = proj.pattern
-                        new_g : VerifyGoal = VerifyGoal(
-                            goal_id=self.fresh_goal_id(),
-                            antecedent=antecedent,
-                            
-                        )
-                pass
-
-            # TODO what now?
+            
+            for goal in e.question.goals:
+                cut_in_j : List[List[CutElement]] = [
+                    self.advance_to_cut(
+                        phi=goal.antecedent.clp.lp.patterns[j],
+                        depth=goal.total_steps[j],
+                        j=j,
+                        instantiated_cutpoints=goal.instantiated_cutpoints,
+                        flushed_cutpoints=goal.flushed_cutpoints,
+                        user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                    )
+                    for j in range(0, self.arity)
+                ]
+                # TODO what now?
+                continue
             e.processed = True
             return False
             pass
@@ -854,43 +859,6 @@ class Verifier:
             assert new_index not in self.trie
             self.trie[new_index] = new_entry
             return False
-
-    #def combine_projections
-
-    def advance_in_all_directions(self, idx: Any, e : VerifyEntry) -> List[List[Tuple[Projection, bool]]]:
-        in_all_directions : Dict[VerifyGoal, List[List[Tuple[Projection, bool]]]] = {}
-        # Try every possible direction
-        for j in range(0, self.arity):
-            _LOGGER.debug(f"From {idx} in direction {j}")
-            index_component = add_on_position(([0] * self.arity), j, 1)
-            idx_of_next = index_append_steps(idx, index_component)
-            # FIXME the comment below is stale
-            # We have already computed this, probably from a different side, so do not compute it again.
-            # Note that previously we might have computed more steps from some side `j2`.
-            # In that case it will happen that we will not continue in the direction `j` although we could.
-            # I think it is not a problem, because we will eventually hit the position `idx_of_next` directly
-            # and therefore we will try to explore it. (Note that we sometimes remove things from the trie,
-            # but we will remove only `idx` in this call, and not `idx_of_next`, which is different)
-            if idx_of_next in self.trie:
-                assert idx != idx_of_next
-                continue
-
-
-            for goal in e.question.goals:
-                component : Projection = Projection(
-                    pattern=goal.antecedent.clp.lp.patterns[j],
-                    depth=goal.total_steps[j],
-                    stuck=goal.stuck[j],
-                    projected_from=goal,
-                    # TODO remove these three elements since they are accessible using `projected_from`
-                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
-                    instantiated_cutpoints=goal.instantiated_cutpoints,
-                    flushed_cutpoints=goal.flushed_cutpoints,
-                )
-                cr = self.advance_component_in_direction(component=component, j=j)
-                in_all_directions[goal] = cr
-            continue
-        return in_all_directions
 
 
     def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
@@ -922,7 +890,7 @@ class Verifier:
             # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
             flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
                 (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
-                for antecedentC in goal.flushed_cutpoints
+                for antecedentC in goal.flushed_cutpoints.values()
             ]
             # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
             usable_flushed_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [
@@ -936,13 +904,13 @@ class Verifier:
                 continue
 
             # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
-            user_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
-                (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
-                for antecedentC in self.user_cutpoints
-                if not antecedentC in goal.user_cutpoint_blacklist
+            user_cutpoints_with_subst : List[Tuple[str, EclpImpliesResult]] = [
+                (antecedentCname, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.user_cutpoints[antecedentCname]))
+                for antecedentCname in self.user_cutpoints
+                if not antecedentCname in goal.user_cutpoint_blacklist
             ]
             # The list of cutpoints matching the current 'state'
-            usable_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [
+            usable_cutpoints : List[Tuple[str, EclpImpliesResult]] = [
                 (antecedentC, subst)
                 for (antecedentC, subst) in user_cutpoints_with_subst
                 if subst is not None
@@ -950,6 +918,7 @@ class Verifier:
 
             if (len(usable_cutpoints) > 1):
                 _LOGGER.warning(f"Question {idx}, goal ID {goal.goal_id}: multiple usable cutpoints; choosing one arbitrarily")
+                _LOGGER.debug(f"(The usable cutpoints are: {[name for name,_ in usable_cutpoints]})")
             
             if (len(usable_cutpoints) > 0):
                 new_goal_id = self.fresh_goal_id()
@@ -957,11 +926,13 @@ class Verifier:
                 # apply Conseq (using [subst]) to change the goal to [antecedentC]
                 # apply Circularity
                 # We filter [user_cutpoints] to prevent infinite loops
-                antecedentC = usable_cutpoints[0][0]
+                antecedentCname : str = usable_cutpoints[0][0]
+                antecedentC = self.user_cutpoints[antecedentCname]
                 antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
                 #_LOGGER.debug(f'New cutpoint: {antecedentCrenamed}')
                 ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
-                ic = goal.instantiated_cutpoints + [antecedentCrenamed]
+                ic = goal.instantiated_cutpoints.copy()
+                ic[antecedentCname] = antecedentCrenamed
                 new_goals.append(VerifyGoal(
                     goal_id=new_goal_id,
                     antecedent=antecedentC.with_no_vars(),
@@ -1019,13 +990,6 @@ class Verifier:
         return step_result
 
 
-    @dataclass
-    class CutElement:
-        phi : Pattern
-        matches : bool
-        depth : int
-        stuck : bool
-        progress_from_initial : bool
 
     def new_flushed_cutpoints(
         self,
@@ -1057,7 +1021,7 @@ class Verifier:
         instantiated_cutpoints : Map[str, ECLP],
         flushed_cutpoints : Map[str, ECLP],
         user_cutpoint_blacklist : List[str],
-    ) -> List[CutpointElement]:
+    ) -> List[CutElement]:
         final_elements : List[CutElement]
         elements_to_explore : List[CutElement] = [
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
@@ -1086,13 +1050,13 @@ class Verifier:
                         flushed_cutpoints=self.new_flushed_cutpoints(
                             instantiated_cutpoints=instantiated_cutpoints,
                             flushed_cutpoints=flushed_cutpoints,
-                            progress=ce.progress_from_initial # TODO or True?
+                            progress=ce.progress_from_initial, # TODO or True?
                         ),
                         instantiated_cutpoints=self.new_instantiated_cutpoints(
                             instantiated_cutpoints=instantiated_cutpoints,
                             flushed_cutpoints=flushed_cutpoints,
-                            progress=ce.progress_from_initial # TODO or True?
-                        )
+                            progress=ce.progress_from_initial, # TODO or True?
+                        ),
                         user_cutpoint_blacklist=user_cutpoint_blacklist
                     )
                     new_ce : CutElement = CutElement(
