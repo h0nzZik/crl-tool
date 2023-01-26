@@ -858,7 +858,7 @@ class Verifier:
     #def combine_projections
 
     def advance_in_all_directions(self, idx: Any, e : VerifyEntry) -> List[List[Tuple[Projection, bool]]]:
-        in_all_directions : List[List[Tuple[Projection, bool]]] = []
+        in_all_directions : Dict[VerifyGoal, List[List[Tuple[Projection, bool]]]] = {}
         # Try every possible direction
         for j in range(0, self.arity):
             _LOGGER.debug(f"From {idx} in direction {j}")
@@ -875,21 +875,20 @@ class Verifier:
                 assert idx != idx_of_next
                 continue
 
-            components : List[Projection] = [
-                Projection(
-                    pattern=g.antecedent.clp.lp.patterns[j],
-                    depth=g.total_steps[j],
-                    stuck=g.stuck[j],
-                    projected_from=g,
+
+            for goal in e.question.goals:
+                component : Projection = Projection(
+                    pattern=goal.antecedent.clp.lp.patterns[j],
+                    depth=goal.total_steps[j],
+                    stuck=goal.stuck[j],
+                    projected_from=goal,
                     # TODO remove these three elements since they are accessible using `projected_from`
-                    user_cutpoint_blacklist=g.user_cutpoint_blacklist,
-                    instantiated_cutpoints=g.instantiated_cutpoints,
-                    flushed_cutpoints=g.flushed_cutpoints,
+                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                    instantiated_cutpoints=goal.instantiated_cutpoints,
+                    flushed_cutpoints=goal.flushed_cutpoints,
                 )
-                for g in e.question.goals
-            ]
-            cr = self.advance_components_in_direction(components=components, j=j)
-            in_all_directions.append(cr)
+                cr = self.advance_component_in_direction(component=component, j=j)
+                in_all_directions[goal] = cr
             continue
         return in_all_directions
 
@@ -1020,199 +1019,137 @@ class Verifier:
         return step_result
 
 
+    @dataclass
+    class CutElement:
+        phi : Pattern
+        matches : bool
+        depth : int
+        stuck : bool
+        progress_from_initial : bool
 
-    # the bool means whether a progress (symbolic step) was made
-    def advance_components_in_direction(self, components: List[Projection], j: int, keep_old = True) -> List[Projection]:
-        _LOGGER.info(f"Adancing on lis of patterns of lenght {len(components)} in direction {j}.")
-        incr_depth = 0
-        while True:
-            new_components : List[Projection] = []
-            stop_at_this_depth = False
-            for i in range(len(components)):
-                curr_proj : Projection = components[i]
-                
-                if curr_proj.stuck:
-                    new_components.append(curr_proj)
-                    continue
-                
-                step_result : ExecuteResult = self.symbolic_step(curr_proj.pattern)
-                if step_result.reason == StopReason.BRANCHING:
-                    assert(step_result.next_states is not None)
-                    assert(len(step_result.next_states) > 1)
-                    _LOGGER.info(f"Branching in incr_depth {incr_depth}")
-                    bs = list(map(lambda s: s.kore, step_result.next_states))
-                    for b in bs:
-                        new_proj : Projection = Projection(
-                            pattern=b,
-                            depth=curr_proj.depth+incr_depth,
-                            stuck=curr_proj.stuck, # probably False
-                            matches=curr_proj.matches,
-                            instantiated_cutpoints=curr_proj.instantiated_cutpoints,
-                            flushed_cutpoints=curr_proj.flushed_cutpoints,
-                            user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist,
-                        )
-                        new_components.append(new_proj)
-                    continue
-                if step_result.reason == StopReason.DEPTH_BOUND:
-                    _LOGGER.info(f"Progress in incr_depth {incr_depth}")
-                    p : Pattern = step_result.state.kore
+    def new_flushed_cutpoints(
+        self,
+        instantiated_cutpoints : Map[str, ECLP],
+        flushed_cutpoints : Map[str, ECLP],
+        progress: bool
+    ) -> Map[str, ECLP]:
+        if progress:
+            return instantiated_cutpoints.union(flushed_cutpoints)
+        else:
+            return flushed_cutpoints
 
-                    matches : bool = self.approx_implies_something(
-                        pattern_j=p,
-                        j=j,
-                        flushed_cutpoints=curr_proj.flushed_cutpoints,
-                        user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist
-                    )
+    def new_instantiated_cutpoints(
+        self,
+        instantiated_cutpoints : Map[str, ECLP],
+        flushed_cutpoints : Map[str, ECLP],
+        progress: bool
+    ) -> Map[str, ECLP]:
+        if progress:
+            return []
+        else:
+            return instantiated_cutpoints
 
-                    new_proj : Projection = Projection(
-                        pattern=p,
-                        depth=curr_proj.depth+incr_depth,
-                        stuck=False,
-                        matches=matches,
-                        instantiated_cutpoints=[],
-                        flushed_cutpoints=(curr_proj.flushed_cutpoints + curr_proj.instantiated_cutpoints),
-                        user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist,
-                    )
-                    if keep_old:
-                        new_components.append(curr_proj)
-                    new_components.append(new_proj)
+    def advance_to_cut(
+        self,
+        phi: Pattern,
+        depth: int,
+        j: int,
+        instantiated_cutpoints : Map[str, ECLP],
+        flushed_cutpoints : Map[str, ECLP],
+        user_cutpoint_blacklist : List[str],
+    ) -> List[CutpointElement]:
+        final_elements : List[CutElement]
+        elements_to_explore : List[CutElement] = [
+            CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
+        ]
+        while len(elements_to_explore) > 0:
+            ce : CutElement = elements_to_explore.pop()
+            assert(not ce.matches)
+            assert(not ce.stuck)
+            _LOGGER.info(f"Exploring element in depth {ce.depth}")
 
-                    if matches:
-                        stop_at_this_depth = True
-                    continue
-
-                if step_result.reason == StopReason.STUCK:
-                    _LOGGER.info(f"Stuck in incr_depth {incr_depth}")
-                    new_proj : Projection = Projection(
-                        pattern=curr_proj.pattern,
-                        depth=curr_proj.depth,
-                        stuck=True,
-                        matches=curr_proj.matches,
-                        instantiated_cutpoints=curr_proj.instantiated_cutpoints,
-                        flushed_cutpoints=curr_proj.flushed_cutpoints,
-                        user_cutpoint_blacklist=curr_proj.user_cutpoint_blacklist,
-                    )
-                    new_components.append(new_proj)
-
-                _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
-                raise RuntimeError()
-
-            components = new_components
-
-            if stop_at_this_depth:
-                return components
-            if any([c.depth >= self.settings.max_depth for c in components]):
-                return components
-            if all([c.stuck for c in components]):
-                return components
-            continue
-
-
-    def advance_proof_in_direction(self, idx: List[int], idx_of_next : List[int], q: VerifyQuestion, j: int) -> Optional[VerifyQuestion]:
-        _LOGGER.info(f"Question {idx} in direction {j}. Goals: {len(q.goals)}")
-        new_q : VerifyQuestion = VerifyQuestion([], source_of_question=idx, depth=idx_of_next)
-        for goal in q.goals:
-            if (goal.stuck[j]) or (goal.total_steps[j] >= self.settings.max_depth):
-                new_q.goals.append(goal)
+            if ce.depth >= self.settings.max_depth:
+                _LOGGER.info(f"Maximal depth reached")
+                final_elements.append(ce)
                 continue
 
-            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, direction {j}, total_steps {goal.total_steps}")
-
-            pattern_j : Pattern = goal.antecedent.clp.lp.patterns[j]
-            reason : StopReason = StopReason.DEPTH_BOUND
-            
-            curr_iter = 0
-            while (goal.total_steps[j] + curr_iter) < self.settings.max_depth:
-                step_result : ExecuteResult = self.symbolic_step(pattern_j)
-                reason = step_result.reason
-                if reason != StopReason.DEPTH_BOUND:
-                    break
-                curr_iter = curr_iter + 1
-                pattern_j = step_result.state.kore
-                newantecedent0 : ECLP = goal.antecedent.copy()
-                newantecedent0.clp.lp.patterns[j] = pattern_j
-                if self.approx_implies_something(pattern_j=pattern_j, j=j, flushed_cutpoints=goal.flushed_cutpoints, user_cutpoint_blacklist=goal.user_cutpoint_blacklist):
-                    break
-                if (goal.total_steps[j] + curr_iter) < self.settings.max_depth:
-                    _LOGGER.info("stepping again")
-
-            total_steps = goal.total_steps.copy()
-            total_steps[j] = total_steps[j] + curr_iter
-
-            if step_result.reason == StopReason.STUCK:
-                # FIXME the comment below is stale
-                # Cannot make progres with one goal in the question.
-                # Since we need to solve all the goals, this means that the question has no solution.
-                # We would prefer not to reach this dead end again, so we want to write to the hypercube
-                # data saying that there is an unsolvable question.
-                _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: stuck")
-                new_stuck = goal.stuck.copy()
-                new_stuck[j] = True
-                newantecedent1 : ECLP = goal.antecedent.copy()
-                newantecedent1.clp.lp.patterns[j] = pattern_j
-                new_goal = VerifyGoal(
-                    goal_id=self.fresh_goal_id(),
-                    antecedent=newantecedent1,
-                    instantiated_cutpoints=goal.instantiated_cutpoints,
-                    flushed_cutpoints=goal.flushed_cutpoints,
-                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
-                    stuck=new_stuck,
-                    total_steps=total_steps,
-                )
-                new_q.goals.append(new_goal)
-                continue
-
-
-            if step_result.reason == StopReason.DEPTH_BOUND:
-                # We made a step, so we can flush the circularities/instantiated cutpoints
-                _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: progress")
-                newantecedent : ECLP = goal.antecedent.copy()
-                newantecedent.clp.lp.patterns[j] = pattern_j
-                fc = goal.instantiated_cutpoints + goal.flushed_cutpoints
-                new_q.goals.append(VerifyGoal(
-                    goal_id=self.fresh_goal_id(),
-                    antecedent=newantecedent,
-                    instantiated_cutpoints=[],
-                    flushed_cutpoints=fc,
-                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
-                    stuck=goal.stuck.copy(),
-                    total_steps=total_steps,
-                ))
-                continue
-            
+            step_result : ExecuteResult = self.symbolic_step(curr_proj.pattern)
             if step_result.reason == StopReason.BRANCHING:
                 assert(step_result.next_states is not None)
                 assert(len(step_result.next_states) > 1)
-                _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}: branching ({len(step_result.next_states)})")
+                _LOGGER.info(f"Branching in depth {ce.depth}")
                 bs = list(map(lambda s: s.kore, step_result.next_states))
-                for b in bs:
-                    newantecedent = goal.antecedent.copy()
-                    newantecedent.clp.lp.patterns[j] = b
-                    # TODO:
-                    # (1) prune inconsistent branches (since we have the toplevel constraint in antecedent/newantecedent)
-                    # (2) propagate the constraints as locally as possible
-                    #if not consistent(newantecedent):
-                    #    continue
-                    # But actually, the implication [antecedent ---> consequent] entails consistency check,
-                    # because if the LHS is inconsistent, the implication holds.
-                    # We didn't make step, so no flushing
-                    new_q.goals.append(VerifyGoal(
-                        goal_id=self.fresh_goal_id(),
-                        antecedent=newantecedent,
-                        instantiated_cutpoints=goal.instantiated_cutpoints,
-                        flushed_cutpoints=goal.flushed_cutpoints,
-                        user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
-                        stuck=goal.stuck.copy(),
-                        total_steps=total_steps,
-                    ))
+                for p in bs:
+                    matches : bool = self.approx_implies_something(
+                        pattern_j=p,
+                        j=j,
+                        flushed_cutpoints=self.new_flushed_cutpoints(
+                            instantiated_cutpoints=instantiated_cutpoints,
+                            flushed_cutpoints=flushed_cutpoints,
+                            progress=ce.progress_from_initial # TODO or True?
+                        ),
+                        instantiated_cutpoints=self.new_instantiated_cutpoints(
+                            instantiated_cutpoints=instantiated_cutpoints,
+                            flushed_cutpoints=flushed_cutpoints,
+                            progress=ce.progress_from_initial # TODO or True?
+                        )
+                        user_cutpoint_blacklist=user_cutpoint_blacklist
+                    )
+                    new_ce : CutElement = CutElement(
+                        phi=p,
+                        depth=ce.depth+1,
+                        stuck=False,
+                        matches=matches,
+                        progress_from_initial=ce.progress_from_initial # TODO: or True?
+                    )
+
+                    if matches:
+                        final_elements.append(new_ce)
+                    else:
+                        elements_to_explore.append(new_ce)
                     continue
                 continue
-            _LOGGER.error(f"Question {idx}, goal ID {goal.goal_id}: weird step_result: reason={step_result.reason}")
-            raise RuntimeError()
-        return new_q
+            if step_result.reason == StopReason.DEPTH_BOUND:
+                _LOGGER.info(f"Progress in depth {ce.depth}")
+                p : Pattern = step_result.state.kore
+                matches : bool = self.approx_implies_something(
+                    pattern_j=p,
+                    j=j,
+                    flushed_cutpoints=self.new_flushed_cutpoints(
+                        instantiated_cutpoints=instantiated_cutpoints,
+                        flushed_cutpoints=flushed_cutpoints,
+                        progress=True
+                    ),
+                    instantiated_cutpoints=self.new_instantiated_cutpoints(
+                        instantiated_cutpoints=instantiated_cutpoints,
+                        flushed_cutpoints=flushed_cutpoints,
+                        progress=True
+                    ),
+                    user_cutpoint_blacklist=user_cutpoint_blacklist
+                )
+                new_ce : CutElement = CutElement(
+                    phi=p,
+                    depth=ce.depth+1,
+                    stuck=False,
+                    matches=matches,
+                    progress_from_initial=True
+                )
+                if matches:
+                    final_elements.append(new_ce)
+                else:
+                    elements_to_explore.append(new_ce)
+                continue
+            continue
 
-    def unprocessed(self) -> List[VerifyQuestion]:
-        return [e.question for e in self.entries if (not e.processed) and (e.question is not None)]
+            if step_result.reason == StopReason.STUCK:
+                _LOGGER.info(f"Stuck in depth {ce.depth}")
+                ce.stuck = True
+                final_elements.append(ce)
+                continue
+            _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
+            raise RuntimeError()
+
+        return final_elements
 
 
 def rename_vars_lp(renaming: Dict[str, str], lp: LP):
