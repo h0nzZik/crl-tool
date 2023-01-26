@@ -868,7 +868,7 @@ class Verifier:
         self.ps.big_impl.add(new - old)
         return r
 
-    def advance_proof_general(self, idx: List[int], q: VerifyQuestion) -> Union[bool, Tuple[str, VerifyEntry]]:
+    def advance_proof_general(self, idx: List[int], q: VerifyQuestion) -> List[VerifyGoal]:
         _LOGGER.info(f"Question {idx} in general. Goals: {len(q.goals)}")
         new_goals : List[VerifyGoal] = []
         for goal in q.goals:
@@ -941,12 +941,14 @@ class Verifier:
                     user_cutpoint_blacklist=ucp,
                     stuck=goal.stuck.copy(),
                     total_steps=goal.total_steps.copy(),
+                    # FIXME Well, it matches the current usable cutpoint, right? And other usable cutpoints.
+                    # So this is not really true. TODO think about it more
+                    component_matches_something = [False for _ in range(self.arity)]
                 ))
                 continue
             new_goals.append(goal)
             continue
-        q.goals = new_goals
-        return
+        return new_goals
 
     def implies_small(self, antecedent: Pattern, consequent: Pattern) -> bool:
         old = time.perf_counter()
@@ -958,11 +960,11 @@ class Verifier:
     def approx_implies_something(self,
         pattern_j : Pattern,
         j: int,
-        flushed_cutpoints : List[ECLP],
-        user_cutpoint_blacklist : List[ECLP]
-        ) -> bool:
-        usable_user_cutpoints : List[ECLP] = [eclp for eclp in self.user_cutpoints if eclp not in user_cutpoint_blacklist]
-        what = usable_user_cutpoints + flushed_cutpoints + [self.consequent]
+        flushed_cutpoints : Dict[str,ECLP],
+        user_cutpoint_blacklist : List[str]
+    ) -> bool:
+        usable_user_cutpoints : List[ECLP] = [self.user_cutpoints[name] for name in self.user_cutpoints if name not in user_cutpoint_blacklist]
+        what = usable_user_cutpoints + list(flushed_cutpoints.values()) + [self.consequent]
         for eclp in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             try:
@@ -993,23 +995,25 @@ class Verifier:
 
     def new_flushed_cutpoints(
         self,
-        instantiated_cutpoints : Map[str, ECLP],
-        flushed_cutpoints : Map[str, ECLP],
+        instantiated_cutpoints : Dict[str, ECLP],
+        flushed_cutpoints : Dict[str, ECLP],
         progress: bool
-    ) -> Map[str, ECLP]:
+    ) -> Dict[str, ECLP]:
         if progress:
-            return instantiated_cutpoints.union(flushed_cutpoints)
+            tmp = instantiated_cutpoints.copy()
+            tmp.update(flushed_cutpoints)
+            return tmp
         else:
             return flushed_cutpoints
 
     def new_instantiated_cutpoints(
         self,
-        instantiated_cutpoints : Map[str, ECLP],
-        flushed_cutpoints : Map[str, ECLP],
+        instantiated_cutpoints : Dict[str, ECLP],
+        flushed_cutpoints : Dict[str, ECLP],
         progress: bool
-    ) -> Map[str, ECLP]:
+    ) -> Dict[str, ECLP]:
         if progress:
-            return []
+            return dict()
         else:
             return instantiated_cutpoints
 
@@ -1018,8 +1022,8 @@ class Verifier:
         phi: Pattern,
         depth: int,
         j: int,
-        instantiated_cutpoints : Map[str, ECLP],
-        flushed_cutpoints : Map[str, ECLP],
+        instantiated_cutpoints : Dict[str, ECLP],
+        flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
     ) -> List[CutElement]:
         final_elements : List[CutElement]
@@ -1037,30 +1041,25 @@ class Verifier:
                 final_elements.append(ce)
                 continue
 
-            step_result : ExecuteResult = self.symbolic_step(curr_proj.pattern)
+            step_result : ExecuteResult = self.symbolic_step(ce.phi)
             if step_result.reason == StopReason.BRANCHING:
                 assert(step_result.next_states is not None)
                 assert(len(step_result.next_states) > 1)
                 _LOGGER.info(f"Branching in depth {ce.depth}")
                 bs = list(map(lambda s: s.kore, step_result.next_states))
-                for p in bs:
+                for b in bs:
                     matches : bool = self.approx_implies_something(
-                        pattern_j=p,
+                        pattern_j=b,
                         j=j,
                         flushed_cutpoints=self.new_flushed_cutpoints(
                             instantiated_cutpoints=instantiated_cutpoints,
                             flushed_cutpoints=flushed_cutpoints,
                             progress=ce.progress_from_initial, # TODO or True?
                         ),
-                        instantiated_cutpoints=self.new_instantiated_cutpoints(
-                            instantiated_cutpoints=instantiated_cutpoints,
-                            flushed_cutpoints=flushed_cutpoints,
-                            progress=ce.progress_from_initial, # TODO or True?
-                        ),
                         user_cutpoint_blacklist=user_cutpoint_blacklist
                     )
-                    new_ce : CutElement = CutElement(
-                        phi=p,
+                    new_ce1 : CutElement = CutElement(
+                        phi=b,
                         depth=ce.depth+1,
                         stuck=False,
                         matches=matches,
@@ -1068,23 +1067,18 @@ class Verifier:
                     )
 
                     if matches:
-                        final_elements.append(new_ce)
+                        final_elements.append(new_ce1)
                     else:
-                        elements_to_explore.append(new_ce)
+                        elements_to_explore.append(new_ce1)
                     continue
                 continue
             if step_result.reason == StopReason.DEPTH_BOUND:
                 _LOGGER.info(f"Progress in depth {ce.depth}")
                 p : Pattern = step_result.state.kore
-                matches : bool = self.approx_implies_something(
+                matches1 : bool = self.approx_implies_something(
                     pattern_j=p,
                     j=j,
                     flushed_cutpoints=self.new_flushed_cutpoints(
-                        instantiated_cutpoints=instantiated_cutpoints,
-                        flushed_cutpoints=flushed_cutpoints,
-                        progress=True
-                    ),
-                    instantiated_cutpoints=self.new_instantiated_cutpoints(
                         instantiated_cutpoints=instantiated_cutpoints,
                         flushed_cutpoints=flushed_cutpoints,
                         progress=True
@@ -1095,7 +1089,7 @@ class Verifier:
                     phi=p,
                     depth=ce.depth+1,
                     stuck=False,
-                    matches=matches,
+                    matches=matches1,
                     progress_from_initial=True
                 )
                 if matches:
@@ -1151,12 +1145,11 @@ def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
 #   each one is an ECLP. Note that they have not been proved to be valid;
 #   it is our task to verify them if we need to use them.
-def prepare_verifier(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> Verifier:
+def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> Verifier:
     user_cutpoints_2 = user_cutpoints.copy()
     if settings.goal_as_cutpoint:
         new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
-        if new_cutpoint not in user_cutpoints_2:
-            user_cutpoints_2.append(new_cutpoint)
+        user_cutpoints_2['default']=new_cutpoint
         
     verifier = Verifier(
         settings=settings,
@@ -1168,6 +1161,6 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : List[ECLP], rs: 
     )
     return verifier
 
-def verify(settings: VerifySettings, user_cutpoints : List[ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
+def verify(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
     verifier = prepare_verifier(settings, user_cutpoints, rs, antecedent, consequent)
     return verifier.verify()
