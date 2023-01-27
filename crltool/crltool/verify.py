@@ -1,7 +1,6 @@
 import logging
 import json
 import time
-import pygtrie # type: ignore
 
 from abc import (
     ABC,
@@ -805,12 +804,27 @@ def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoalConjunction])
 class GoalConjunctionChooserStrategy(ABC):
     # Returns one conjunction and removes it from the internal store.
     # None means that there are no remaining conjunctions
-    def pick_some(self) -> Optional[VerifyGoalConjunction]:
+    @abstractmethod
+    def pick_some(self) -> Optional[GoalConjunction]:
         ...
     
-    def insert_conjunctions(self, Iterable[VerifyGoalConjunction]) -> None:
+    @abstractmethod
+    def insert_conjunctions(self, conjs: Iterable[GoalConjunction]) -> None:
         ...
     
+
+# A minimal, stack-based conjunction chooser strategy.    
+class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
+    _stack : List[GoalConjunction] = []
+
+    def pick_some(self) -> Optional[GoalConjunction]:
+        if (len(self._stack) >= 1):
+            return self._stack.pop()
+        return None
+    
+    def insert_conjunctions(self, gcs: Iterable[GoalConjunction]) -> None:
+        self._stack.extend(gcs)
+        return
 
 
 
@@ -823,12 +837,9 @@ class Verifier:
     consequent : ECLP
     last_goal_id : int
     
-    trie : pygtrie.Trie
-    # invariant: if a key matching `prefix + [('steps', l)]` is in `self.trie`,
-    # then for any j in range(self.arity), the key `prefix + [('steps', add_on_position(l, j, -1))]`
-    # is also (if valid; i.e., positive in all components) in `self.trie`
+    goal_conj_chooser_strategy : GoalConjunctionChooserStrategy
 
-    failed_attempts : List[VerifyEntry] = []
+    failed_attempts : List[GoalConjunction] = []
 
     @dataclass
     class PerformanceStatistics:
@@ -849,6 +860,7 @@ class Verifier:
     def __init__(self,
         settings: VerifySettings,
         exploration_strategy: ExplorationStrategy,
+        goal_conj_chooser_strategy : GoalConjunctionChooserStrategy,
         user_cutpoints : Dict[str, ECLP],
         rs: ReachabilitySystem,
         arity: int,
@@ -857,33 +869,27 @@ class Verifier:
     ):
         self.settings = settings
         self.exploration_strategy = exploration_strategy
+        self.goal_conj_chooser_strategy = goal_conj_chooser_strategy
         self.rs = rs
         self.arity = arity
         self.consequent = consequent
         self.user_cutpoints = user_cutpoints
         self.last_goal_id = 1
-        self.trie = pygtrie.Trie()
         
-        self.trie[index_zero()] = VerifyEntry(
-            question=VerifyQuestion(
-                goals=[VerifyGoal(
-                    goal_id = 0,
-                    antecedent=antecedent,
-                    instantiated_cutpoints=dict(),
-                    flushed_cutpoints=dict(),
-                    user_cutpoint_blacklist=[],
-                    #stuck=[False for _ in range(arity)],
-                    #max_depth = [self.settings.max_depth for _ in range(arity)],
-                    #component_matches_something=[False for _ in range(arity)],
-                    total_steps=index_zero(),
-                    #try_stepping=True,
-                )],
-                #depth=index_zero(),
-            ),
-            index = index_zero(),
-            processed=False,
+        goal = VerifyGoal(
+            goal_id = 0,
+            antecedent=antecedent,
+            instantiated_cutpoints=dict(),
+            flushed_cutpoints=dict(),
+            user_cutpoint_blacklist=[],
+            #stuck=[False for _ in range(arity)],
+            #max_depth = [self.settings.max_depth for _ in range(arity)],
+            #component_matches_something=[False for _ in range(arity)],
+            total_steps=index_zero(),
+            #try_stepping=True,
         )
-
+        self.goal_conj_chooser_strategy.insert_conjunctions([GoalConjunction(goals = [goal])])
+        return
 
     #def dump(self) -> str:
     #    return json.dumps(list(map(lambda e: e.dict, self.entries)), sort_keys=True, indent=4)
@@ -900,23 +906,18 @@ class Verifier:
 
 
     def verify(self) -> VerifyResult:
-        while len(self.trie) > 0:
-            item = self.trie.shortest_prefix(index_zero())
-            if self.advance_proof(item.key):
+        while(True):
+            conj = self.goal_conj_chooser_strategy.pick_some()
+            if conj is None:
+                return VerifyResult(proved=False, final_states=[]) # TODO
+            if self.advance_proof(conj):
                 return VerifyResult(proved=True, final_states=[])
-            self.trie.pop(item.key)
             continue
-        return VerifyResult(proved=False, final_states=[e.question for e in self.failed_attempts if e.question is not None])
+        raise RuntimeError("Unreachable")
     
-    
-    # Takes an index of a proof state in the hypercube
-    # and tries to advance the proof state, possibly generating more entries in the hypercube
-    def advance_proof(self, idx: Any) -> bool:
-        _LOGGER.info(f"Advance_proof on {idx}. Total unprocessed: {len(self.trie)}")
-        e : VerifyEntry = self.trie[idx]
-        #e.index = idx
-
-        _LOGGER.debug(f"Steps on goals: {list(map(lambda g: g.total_steps, e.question.goals))}")
+    def advance_proof(self, conj: GoalConjunction) -> bool:
+        _LOGGER.info(f"Advance_proof on conjunction with {len(conj.goals)} goals.")
+        
         apgresult = self.advance_proof_general(idx=idx, q=e.question)
         if isinstance(apgresult, bool):
             if apgresult == True:
@@ -1291,6 +1292,7 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
     verifier = Verifier(
         settings=settings,
         exploration_strategy=StupidExplorationStrategy(),
+        goal_conj_chooser_strategy=StackGoalConjunctionChooserStrategy(),
         user_cutpoints=user_cutpoints_2,
         rs=rs,
         arity=len(antecedent.clp.lp.patterns),
