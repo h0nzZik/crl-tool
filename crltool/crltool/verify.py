@@ -749,6 +749,7 @@ class ExeCut:
 class PreGoal:
     patterns: List[Pattern]
     absolute_depths: List[int]
+    progress_from_initial: List[bool]
 
 # Combines execution tree cuts from different executions
 def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
@@ -758,6 +759,7 @@ def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
         PreGoal(
             patterns = [ce.phi for ce in comb],
             absolute_depths = [ce.depth for ce in comb],
+            progress_from_initial = [ce.progress_from_initial for ce in comb],
         )
         for comb in combined
     ]
@@ -781,6 +783,12 @@ class StupidStrategy(Strategy):
         pgsl : List[List[PreGoal]] = [combine_exe_cuts(combination) for combination in combinations]
         pgs = chain(*pgsl)
         return pgs
+
+def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoal]) -> Iterable[PreGoal]:
+    for pg in pregoals:
+        if any(pg.progress_from_initial):
+            yield pg
+    return
 
 class Verifier:
     settings: VerifySettings
@@ -895,7 +903,7 @@ class Verifier:
                 return False
             
             for goal in e.question.goals:
-                cuts_in_j : List[ExeCut]= [
+                cuts_in_j : Iterable[ExeCut]= [
                     self.advance_to_limit(
                         phi=goal.antecedent.clp.lp.patterns[j],
                         depth=goal.total_steps[j],
@@ -1147,16 +1155,16 @@ class Verifier:
         instantiated_cutpoints : Dict[str, ECLP],
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
-    ) -> List[ExeCut]:
-        executs : List[ExeCut] = []
+    ) -> Iterable[ExeCut]:
         
-        elements_to_explore_next : List[CutElement] = [
+        # This is the initial cut
+        elements_to_explore_next : ExeCut = ExeCut(ces=[
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
-        ]
+        ])
         while len(elements_to_explore_next) > 0:
-            elements_to_explore_now : List[CutElement] = elements_to_explore_next
-            elements_to_explore_next = []
-            executs.append(ExeCut(ces=[]))
+            elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces
+            elements_to_explore_next.ces = []
+            curr_cut = ExeCut(ces=[])
             while len(elements_to_explore_now) > 0:
                 ce : CutElement = elements_to_explore.pop()
                 assert(not ce.matches)
@@ -1165,7 +1173,7 @@ class Verifier:
 
                 if ce.depth >= self.settings.max_depth:
                     _LOGGER.info(f"Maximal depth reached")
-                    executs[-1].ces.append(ce)
+                    curr_cut.ces.append(ce)
                     # We are NOT adding ce into `elements_to_explore_next`
                     continue
 
@@ -1195,8 +1203,8 @@ class Verifier:
                         )
 
                         if matches:
-                            executs[-1].ces.append(new_ce1)
-                        elements_to_explore_next.append(new_ce1)
+                            curr_cut.ces.append(new_ce1)
+                        elements_to_explore_next.ces.append(new_ce1)
                         continue
                     continue
                 if step_result.reason == StopReason.DEPTH_BOUND:
@@ -1220,8 +1228,7 @@ class Verifier:
                         progress_from_initial=True
                     )
                     if matches:
-                        executs[-1].ces.append(new_ce)
-                    
+                        curr_cut.ces.append(new_ce)
                     # We are NOT adding this element to `elements_to_explore_next` to be explored next
                     continue
                 continue
@@ -1233,9 +1240,9 @@ class Verifier:
                     continue
                 _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
                 raise RuntimeError()
+            yield curr_cut
             continue
-
-        return executs
+        return
 
 
 def rename_vars_lp(renaming: Dict[str, str], lp: LP):
