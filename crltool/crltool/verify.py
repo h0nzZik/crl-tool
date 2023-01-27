@@ -782,7 +782,9 @@ class ExplorationStrategy(ABC):
 class StupidExplorationStrategy(ExplorationStrategy):
     def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
         # arity == len(streams)
+        _LOGGER.debug(f"Strategy: have {len(streams)} streams")
         lists : List[List[ExeCut]] = [ list(s) for s in streams ]
+        _LOGGER.debug(f"Strategy: the streams have lenghts {[len(l) for l in lists]}")
         # arity == len(lists)
         combinations : List[List[ExeCut]] = [list(e) for e in product(*lists)]
         # for any c in combinations, arity == len(c)
@@ -790,10 +792,14 @@ class StupidExplorationStrategy(ExplorationStrategy):
             PreGoalConjunction(pregoals=combine_exe_cuts(combination))
             for combination in combinations
         ]
+        _LOGGER.debug(f"exploration strategy: have {len(pgcs)} conjunctions")
         return pgcs
 
 def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoalConjunction]) -> Iterable[PreGoalConjunction]:
     for pgc in pregoals:
+        if len(pgc.pregoals) == 0:
+            _LOGGER.warning(f"Filtering an empty conjunction: {pgc}")
+            continue
         if len(pgc.pregoals) == 1:
             if not any(pgc.pregoals[0].progress_from_initial):
                 continue
@@ -824,6 +830,9 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         return None
     
     def insert_conjunctions(self, gcs: Iterable[GoalConjunction]) -> None:
+        # This would be highly suspicious
+        # TODO remove the assert since it forces us to generate a list...
+        assert all(map(lambda gc: len(list(gc.goals)) > 0, gcs)) 
         self._stack.extend(gcs)
         return
 
@@ -988,8 +997,9 @@ class Verifier:
                         can_make_steps=True,
                     )
                 ),
-                combined
+                combined_filtered
             )
+            _LOGGER.info(f"new_gcjs: {list(new_gcjs)}")
             # Ok, so at least one of the new goals have to hold for the old goal to be verified.
             # But: the task was to prove all the goals from the conjunction
             new_goals_pre_conj.append(new_gcjs)
@@ -1000,13 +1010,14 @@ class Verifier:
         disj_of_conj : Iterable[Tuple[GoalConjunction,...]] = product(*new_goals_pre_conj)
         disj_of_conj_2 : Iterable[List[GoalConjunction]] = map(lambda t: list(t), disj_of_conj)
         disj_of_conj_3 : Iterable[List[Iterable[VerifyGoal]]] = map(lambda l: list(map(lambda g: g.goals, l)), disj_of_conj_2)
+        disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(lambda l: len(l) > 0, disj_of_conj_3)
         # Now we just flatten the list of conjunctions.
         disj_of_conj_flattened : Iterable[GoalConjunction] = map(
             lambda lgc: GoalConjunction(
                 goals = chain(*lgc),
                 can_make_steps = True,
             ),
-            disj_of_conj_3
+            disj_of_conj_4
         )
         self.goal_conj_chooser_strategy.insert_conjunctions(disj_of_conj_flattened)
         return False
@@ -1214,6 +1225,7 @@ class Verifier:
         elements_to_explore_next : ExeCut = ExeCut(ces=[
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
         ])
+        yield elements_to_explore_next
         while len(elements_to_explore_next.ces) > 0:
             elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces
             elements_to_explore_next.ces = []
@@ -1226,7 +1238,7 @@ class Verifier:
 
                 if ce.depth >= self.settings.max_depth:
                     _LOGGER.info(f"Maximal depth reached")
-                    curr_cut.ces.append(ce)
+                    #curr_cut.ces.append(ce)
                     # We are NOT adding ce into `elements_to_explore_next`
                     continue
 
@@ -1295,7 +1307,8 @@ class Verifier:
                     continue
                 _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
                 raise RuntimeError()
-            yield curr_cut
+            if len(curr_cut.ces) > 0:
+                yield curr_cut
             continue
         return
 
