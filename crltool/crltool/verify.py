@@ -628,7 +628,7 @@ class VerifyGoal:
 
 @dataclass
 class GoalConjunction:
-    goals : List[VerifyGoal]
+    goals : Iterable[VerifyGoal]
     can_make_steps : bool
 
 @dataclass
@@ -828,6 +828,10 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         return
 
 
+class APGResult:
+    new_goal: Optional[VerifyGoal]
+    proved: bool
+    # invariant: proved == True ---> new_goal = None
 
 class Verifier:
     settings: VerifySettings
@@ -889,7 +893,7 @@ class Verifier:
             total_steps=index_zero(),
             #try_stepping=True,
         )
-        self.goal_conj_chooser_strategy.insert_conjunctions([GoalConjunction(goals = [goal])])
+        self.goal_conj_chooser_strategy.insert_conjunctions([GoalConjunction(goals = [goal], can_make_steps = True)])
         return
 
     #def dump(self) -> str:
@@ -916,14 +920,10 @@ class Verifier:
             continue
         raise RuntimeError("Unreachable")
 
-   class APGResult:
-        new_goal: Optional[VerifyGoal]
-        proved: bool
-        # invariant: proved == True ---> new_goal = None
-
 
     def advance_proof(self, conj: GoalConjunction) -> bool:
-        _LOGGER.info(f"Advance_proof on conjunction with {len(conj.goals)} goals.")
+        #_LOGGER.info(f"Advance_proof on conjunction with {len(conj.goals)} goals.")
+        _LOGGER.info(f"Advance_proof on conjunction.")
 
         # We need to make progress on all the goals from the conjunction.
         # If one goal cannot make progress, we discard the whole conjunction as unprovable.
@@ -940,20 +940,28 @@ class Verifier:
         if not conj.can_make_steps:
             _LOGGER.info("Some goals of the conjunction were NOT proved, and we are NOT allowed to make steps")
             return False
+        
+        not_proved_and_not_generalized = [
+            apgr.new_goal
+            for _,apgr in apgresults
+            if (not apgr.proved) and (apgr.new_goal is None)
+        ]
+        if len(not_proved_and_not_generalized) > 0:
+            _LOGGER.info("Some goals of the conjunction were NOT proved and NOT generalized")
+            return False
+        
+        _LOGGER.info("All the goals of the conjunction that were NOT proved WERE generalized")
 
         # Ok, so now we make steps, because we can.
-        # But consider the results from making a step:
-        # some were generated from a generalized goal,
-        # while other from an old goal.
-        # In the future, we want to make steps on the ones from the former,
-        # but not from the latter.
-        goals_after_generalization : List[Tuple[VerifyGoal, bool]] = [
-            (apgr.new_goal, True) if apgr_new_goal is not None else (old_goal, False)
-            for old_goal, apgr in apgresults
-            if not apgr.proved
+        goals_after_generalization : List[VerifyGoal] = [
+            apgr.new_goal
+            for _, apgr in apgresults
+            if (not apgr.proved) and (apgr.new_goal is not None)
         ]
-        _LOGGER.info(f"Going to make steps on {len(new_goals)} goals")
-        for goal, can_make_further_steps in goals_after_generalization:
+        _LOGGER.info(f"Going to make steps on {len(goals_after_generalization)} goals")
+        new_goals_pre_conj : List[Iterable[GoalConjunction]] = []
+        # All of these have to hold
+        for goal in goals_after_generalization:
             cuts_in_j : List[Iterable[ExeCut]] = [
                 self.advance_to_limit(
                     phi=goal.antecedent.clp.lp.patterns[j],
@@ -965,17 +973,42 @@ class Verifier:
                 )
                 for j in range(0, self.arity)
             ]
-            combined = self.exploration_strategy.combine(cuts_in_j)
-            combined_filtered = filter_out_pregoals_with_no_progress(combined)
-            new_goals : Iterable[VerifyGoal] = map(
-                lambda pg: self.pregoal_to_goal(goal, pg, can_make_steps=can_make_further_steps),
+            # Each of the elements of 'combined' is a way of making 'goal' hold.
+            combined : Iterable[PreGoalConjunction] = self.exploration_strategy.combine(cuts_in_j)
+            combined_filtered : Iterable[PreGoalConjunction] = filter_out_pregoals_with_no_progress(combined)
+            # Each of the elements of 'new_gcjs' is a way of making 'goal' hold.
+            new_gcjs : Iterable[GoalConjunction] = map(
+                lambda pgc: (
+                    GoalConjunction(
+                        goals=map(
+                            lambda pg: self.pregoal_to_goal(goal, pg),
+                            pgc.pregoals
+                        ),
+                        can_make_steps=True,
+                    )
+                ),
                 combined
             )
             # Ok, so at least one of the new goals have to hold for the old goal to be verified.
             # But: the task was to prove all the goals from the conjunction
-            # TODO what now?
+            new_goals_pre_conj.append(new_gcjs)
             continue
-        raise NotImplementedError("I thought this to be unreachable")
+
+        # We now have to convert what is effectively a conjunction of disjunctions
+        # into a disjunction of conjunctions.
+        disj_of_conj : Iterable[Tuple[GoalConjunction,...]] = product(*new_goals_pre_conj)
+        disj_of_conj_2 : Iterable[List[GoalConjunction]] = map(lambda t: list(t), disj_of_conj)
+        disj_of_conj_3 : Iterable[List[Iterable[VerifyGoal]]] = map(lambda l: list(map(lambda g: g.goals, l)), disj_of_conj_2)
+        # Now we just flatten the list of conjunctions.
+        disj_of_conj_flattened : Iterable[GoalConjunction] = map(
+            lambda lgc: GoalConjunction(
+                goals = chain(*lgc),
+                can_make_steps = True,
+            ),
+            disj_of_conj_3
+        )
+        self.goal_conj_chooser_strategy.insert_conjunctions(disj_of_conj_flattened)
+        return False
 
     def pregoal_to_goal(self, goal: VerifyGoal, pregoal: PreGoal) -> VerifyGoal:
         assert(len(pregoal.patterns) == self.arity)
