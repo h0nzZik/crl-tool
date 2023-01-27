@@ -1158,7 +1158,9 @@ class Verifier:
         user_cutpoint_blacklist : List[str]
     ) -> bool:
         usable_user_cutpoints : List[ECLP] = [self.user_cutpoints[name] for name in self.user_cutpoints if name not in user_cutpoint_blacklist]
-        what = usable_user_cutpoints + list(flushed_cutpoints.values()) + [self.consequent]
+        fcv = list(flushed_cutpoints.values())
+        what = usable_user_cutpoints + fcv + [self.consequent]
+        _LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
         for eclp in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             
@@ -1312,6 +1314,7 @@ class Verifier:
                 raise RuntimeError()
             assert(len(elements_to_explore_now) == 0)
             if len(curr_cut.ces) > 0:
+                _LOGGER.info(f"Yielding a cut of size {len(curr_cut.ces)}")
                 yield curr_cut
                 elements_to_explore_next.ces.extend(curr_cut.ces)
 
