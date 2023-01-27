@@ -629,6 +629,7 @@ class VerifyGoal:
 @dataclass
 class GoalConjunction:
     goals : List[VerifyGoal]
+    can_make_steps : bool
 
 @dataclass
 class VerifyQuestion: 
@@ -914,46 +915,57 @@ class Verifier:
                 return VerifyResult(proved=True, final_states=[])
             continue
         raise RuntimeError("Unreachable")
-    
+
+   class APGResult:
+        new_goal: Optional[VerifyGoal]
+        proved: bool
+        # invariant: proved == True ---> new_goal = None
+
+
     def advance_proof(self, conj: GoalConjunction) -> bool:
         _LOGGER.info(f"Advance_proof on conjunction with {len(conj.goals)} goals.")
+
+        # We need to make progress on all the goals from the conjunction.
+        # If one goal cannot make progress, we discard the whole conjunction as unprovable.
+        # However, if all of them make progress - that is, are proved or can be generalized,
+        # we have to combine all the generalizations into a ....
+        apgresults = [
+            (goal, self.advance_proof_general(goal))
+            for goal in conj.goals
+        ]
+        if all([apgr.proved for _,apgr in apgresults]):
+            _LOGGER.info("All goals of the conjunction were proved")
+            return True
         
-        apgresult = self.advance_proof_general(idx=idx, q=e.question)
-        if isinstance(apgresult, bool):
-            if apgresult == True:
-                _LOGGER.info("Succeeded (advance_proof_general returned True).")
-                return True
-    
-            if not e.question.try_stepping:
-                return False
-            
-            for goal in e.question.goals:
-                cuts_in_j : List[Iterable[ExeCut]] = [
-                    self.advance_to_limit(
-                        phi=goal.antecedent.clp.lp.patterns[j],
-                        depth=goal.total_steps[j],
-                        j=j,
-                        instantiated_cutpoints=goal.instantiated_cutpoints,
-                        flushed_cutpoints=goal.flushed_cutpoints,
-                        user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
-                    )
-                    for j in range(0, self.arity)
-                ]
-                combined = self.exploration_strategy.combine(cuts_in_j)
-                combined_filtered = filter_out_pregoals_with_no_progress(combined)
-                new_goals : Iterable[VerifyGoal] = map(lambda pg: self.pregoal_to_goal(goal, pg), combined)
-                # TODO what now?
-                continue
-            e.processed = True
-            return False
-            pass
-        else:
-            (cutpoint_name, new_entry) = apgresult
-            new_index = index_append_cutpoint(idx, cutpoint_name)
-            assert new_index not in self.trie
-            self.trie[new_index] = new_entry
+        if not conj.can_make_steps:
+            _LOGGER.info("Some goals of the conjunction were NOT proved, and we are NOT allowed to make steps")
             return False
 
+        new_goals = [
+            apgr.new_goal if apgr_new_goal is not None else old_goal
+            for old_goal, apgr in apgresults
+            if not apgr.proved
+        ]
+        _LOGGER.info(f"Going to make steps on {len(new_goals)} goals")
+        for goal in new_goals:
+            cuts_in_j : List[Iterable[ExeCut]] = [
+                self.advance_to_limit(
+                    phi=goal.antecedent.clp.lp.patterns[j],
+                    depth=goal.total_steps[j],
+                    j=j,
+                    instantiated_cutpoints=goal.instantiated_cutpoints,
+                    flushed_cutpoints=goal.flushed_cutpoints,
+                    user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                )
+                for j in range(0, self.arity)
+            ]
+            combined = self.exploration_strategy.combine(cuts_in_j)
+            combined_filtered = filter_out_pregoals_with_no_progress(combined)
+            new_goals : Iterable[VerifyGoal] = map(lambda pg: self.pregoal_to_goal(goal, pg), combined)
+            # TODO what now?
+            continue
+        raise NotImplementedError("I thought this to be unreachable")
+        
     def pregoal_to_goal(self, goal: VerifyGoal, pregoal: PreGoal) -> VerifyGoal:
         assert(len(pregoal.patterns) == self.arity)
         goal_id = self.fresh_goal_id()
@@ -1001,87 +1013,80 @@ class Verifier:
         self.ps.big_impl.add(new - old)
         return r
 
-    def advance_proof_general(self, idx: List[int], q: VerifyQuestion) -> List[VerifyGoal]:
-        _LOGGER.info(f"Question {idx} in general.")
-        new_goals : List[VerifyGoal] = []
-        for goal in q.goals:
+ 
 
-            if goal.was_processed_by_advance_general:
-                new_goals.append(goal)
-                continue
-            goal.was_processed_by_advance_general = True
-
-            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, flushed cutpoints {len(goal.flushed_cutpoints)}")
+    def advance_proof_general(self, goal: VerifyGoal) -> APGResult:
+        _LOGGER.info(f"APG goal {goal.goal_id}")
+        _LOGGER.info(f"Flushed cutpoints {len(goal.flushed_cutpoints)}")
             
-            implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
-            if implies_result.valid:
-                # we can build a proof object using subst, Conseq, Reflexivity
-                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (antecedent implies consequent)')
-                continue 
+        implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
+        if implies_result.valid:
+            # we can build a proof object using subst, Conseq, Reflexivity
+            _LOGGER.info(f'Solved (antecedent implies consequent)')
+            return APGResult(new_goal=None, proved=True)
 
             #_LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}") # most often should be empty
-            # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
-            flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
-                (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
-                for antecedentC in goal.flushed_cutpoints.values()
-            ]
-            # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
-            usable_flushed_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [
-                (antecedentC, result)
-                for (antecedentC, result) in flushed_cutpoints_with_subst
-                if result.valid
-            ]
-            if (len(usable_flushed_cutpoints) > 0):
-                # Conseq, Axiom
-                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: solved (using flushed cutpoint)')
-                continue
+        # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
+        flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
+            (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
+            for antecedentC in goal.flushed_cutpoints.values()
+        ]
+        # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
+        usable_flushed_cutpoints : List[Tuple[ECLP, EclpImpliesResult]] = [
+            (antecedentC, result)
+            for (antecedentC, result) in flushed_cutpoints_with_subst
+            if result.valid
+        ]
+        if (len(usable_flushed_cutpoints) > 0):
+            # Conseq, Axiom
+            _LOGGER.info(f'Solved (using flushed cutpoint)')
+            return APGResult(new_goal=None, proved=True)
 
-            # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
-            user_cutpoints_with_subst : List[Tuple[str, EclpImpliesResult]] = [
-                (antecedentCname, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.user_cutpoints[antecedentCname]))
-                for antecedentCname in self.user_cutpoints
-                if not antecedentCname in goal.user_cutpoint_blacklist
-            ]
-            # The list of cutpoints matching the current 'state'
-            usable_cutpoints : List[Tuple[str, EclpImpliesResult]] = [
-                (antecedentC, subst)
-                for (antecedentC, subst) in user_cutpoints_with_subst
-                if subst is not None
-            ]
+        # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
+        user_cutpoints_with_subst : List[Tuple[str, EclpImpliesResult]] = [
+            (antecedentCname, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.user_cutpoints[antecedentCname]))
+            for antecedentCname in self.user_cutpoints
+            if not antecedentCname in goal.user_cutpoint_blacklist
+        ]
+        # The list of cutpoints matching the current 'state'
+        usable_cutpoints : List[Tuple[str, EclpImpliesResult]] = [
+            (antecedentC, subst)
+            for (antecedentC, subst) in user_cutpoints_with_subst
+            if subst is not None
+        ]
 
-            if (len(usable_cutpoints) > 1):
-                _LOGGER.warning(f"Question {idx}, goal ID {goal.goal_id}: multiple usable cutpoints; choosing one arbitrarily")
-                _LOGGER.debug(f"(The usable cutpoints are: {[name for name,_ in usable_cutpoints]})")
+        if (len(usable_cutpoints) > 1):
+            _LOGGER.warning(f"Multiple usable cutpoints; choosing one arbitrarily")
+            _LOGGER.debug(f"(The usable cutpoints are: {[name for name,_ in usable_cutpoints]})")
             
-            if (len(usable_cutpoints) > 0):
-                new_goal_id = self.fresh_goal_id()
-                _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: using a cutpoint to create goal with ID {new_goal_id}')
-                # apply Conseq (using [subst]) to change the goal to [antecedentC]
-                # apply Circularity
-                # We filter [user_cutpoints] to prevent infinite loops
-                antecedentCname : str = usable_cutpoints[0][0]
-                antecedentC = self.user_cutpoints[antecedentCname]
-                antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
-                #_LOGGER.debug(f'New cutpoint: {antecedentCrenamed}')
-                ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
-                ic = goal.instantiated_cutpoints.copy()
-                ic[antecedentCname] = antecedentCrenamed
-                new_goals.append(VerifyGoal(
-                    goal_id=new_goal_id,
-                    antecedent=antecedentC.with_no_vars(),
-                    instantiated_cutpoints=ic,
-                    flushed_cutpoints=goal.flushed_cutpoints,
-                    user_cutpoint_blacklist=ucp,
-                    #stuck=goal.stuck.copy(),
-                    total_steps=goal.total_steps.copy(),
-                    # FIXME Well, it matches the current usable cutpoint, right? And other usable cutpoints.
-                    # So this is not really true. TODO think about it more
-                    #component_matches_something = [False for _ in range(self.arity)]
-                ))
-                continue
-            new_goals.append(goal)
-            continue
-        return new_goals
+        if (len(usable_cutpoints) > 0):
+            new_goal_id = self.fresh_goal_id()
+            _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: using a cutpoint to create goal with ID {new_goal_id}')
+            # apply Conseq (using [subst]) to change the goal to [antecedentC]
+            # apply Circularity
+            # We filter [user_cutpoints] to prevent infinite loops
+            antecedentCname : str = usable_cutpoints[0][0]
+            antecedentC = self.user_cutpoints[antecedentCname]
+            antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
+            #_LOGGER.debug(f'New cutpoint: {antecedentCrenamed}')
+            ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
+            ic = goal.instantiated_cutpoints.copy()
+            ic[antecedentCname] = antecedentCrenamed
+            ng = VerifyGoal(
+                goal_id=new_goal_id,
+                antecedent=antecedentC.with_no_vars(),
+                instantiated_cutpoints=ic,
+                flushed_cutpoints=goal.flushed_cutpoints,
+                user_cutpoint_blacklist=ucp,
+                #stuck=goal.stuck.copy(),
+                total_steps=goal.total_steps.copy(),
+                # FIXME Well, it matches the current usable cutpoint, right? And other usable cutpoints.
+                # So this is not really true. TODO think about it more
+                #component_matches_something = [False for _ in range(self.arity)]
+            )
+            return APGResult(new_goal=ng, proved=False)
+        _LOGGER.info(f'Not proved, no generalization applicable.')
+        return APGResult(new_goal=None, proved=False)
 
     def implies_small(self, antecedent: Pattern, consequent: Pattern) -> bool:
         old = time.perf_counter()
