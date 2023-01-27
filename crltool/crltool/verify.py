@@ -1161,6 +1161,8 @@ class Verifier:
         what = usable_user_cutpoints + list(flushed_cutpoints.values()) + [self.consequent]
         for eclp in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
+            
+            #_LOGGER.debug(f"Checking implication to {self.rs.kprint.kore_to_pretty(phi)}")
             try:
                 if self.implies_small(pattern_j, phi):
                     return True
@@ -1235,6 +1237,7 @@ class Verifier:
                 #assert(not ce.matches)
                 assert(not ce.stuck)
                 _LOGGER.info(f"Exploring element in depth {ce.depth}")
+                #_LOGGER.info(self.rs.kprint.kore_to_pretty(ce.phi))
 
                 if ce.depth >= self.settings.max_depth:
                     _LOGGER.info(f"Maximal depth reached")
@@ -1246,8 +1249,8 @@ class Verifier:
                 if step_result.reason == StopReason.BRANCHING:
                     assert(step_result.next_states is not None)
                     assert(len(step_result.next_states) > 1)
-                    _LOGGER.info(f"Branching in depth {ce.depth}")
                     bs = list(map(lambda s: s.kore, step_result.next_states))
+                    _LOGGER.info(f"Branching in depth {ce.depth} with {len(bs)} successors")
                     for b in bs:
                         matches : bool = self.approx_implies_something(
                             pattern_j=b,
@@ -1268,9 +1271,10 @@ class Verifier:
                         )
 
                         if matches:
+                            _LOGGER.info(f"The configuration matches something; adding to current cut.")
                             curr_cut.ces.append(new_ce1)
-                        elements_to_explore_next.ces.append(new_ce1)
-                        continue
+                        else:
+                            elements_to_explore_next.ces.append(new_ce1)
                     continue
                 if step_result.reason == StopReason.DEPTH_BOUND:
                     _LOGGER.info(f"Progress in depth {ce.depth}")
@@ -1293,13 +1297,12 @@ class Verifier:
                         progress_from_initial=True
                     )
                     if matches1:
+                        _LOGGER.info(f"The configuration matches something; adding to current cut.")
                         curr_cut.ces.append(new_ce)
-                    # FIXME: why?
-                    # We are NOT adding this element to `elements_to_explore_next` to be explored next
-                    elements_to_explore_next.ces.append(new_ce)
+                    else:
+                        elements_to_explore_next.ces.append(new_ce)
                     continue
-                continue
-
+                
                 if step_result.reason == StopReason.STUCK:
                     _LOGGER.info(f"Stuck in depth {ce.depth}")
                     #ce.stuck = True
@@ -1307,8 +1310,11 @@ class Verifier:
                     continue
                 _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
                 raise RuntimeError()
+            assert(len(elements_to_explore_now) == 0)
             if len(curr_cut.ces) > 0:
                 yield curr_cut
+                elements_to_explore_next.ces.extend(curr_cut.ces)
+
             continue
         return
 
