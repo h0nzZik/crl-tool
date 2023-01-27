@@ -752,13 +752,13 @@ def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
     return pregoals
 
 
-class Strategy(ABC):
+class ExplorationStrategy(ABC):
     @abstractmethod
     def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoal]:
         ...
 
-# This strategy assumes that all the streams are finite
-class StupidStrategy(Strategy):
+# This exploration_strategy assumes that all the streams are finite
+class StupidExplorationStrategy(ExplorationStrategy):
     def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoal]:
         # arity == len(streams)
         lists : List[List[ExeCut]] = [ list(s) for s in streams ]
@@ -777,7 +777,7 @@ def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoal]) -> Iterabl
 
 class Verifier:
     settings: VerifySettings
-    strategy : Strategy
+    exploration_strategy : ExplorationStrategy
     user_cutpoints : Dict[str, ECLP]
     rs: ReachabilitySystem
     arity : int
@@ -809,7 +809,7 @@ class Verifier:
 
     def __init__(self,
         settings: VerifySettings,
-        strategy: Strategy,
+        exploration_strategy: ExplorationStrategy,
         user_cutpoints : Dict[str, ECLP],
         rs: ReachabilitySystem,
         arity: int,
@@ -817,7 +817,7 @@ class Verifier:
         consequent: ECLP
     ):
         self.settings = settings
-        self.strategy = strategy
+        self.exploration_strategy = exploration_strategy
         self.rs = rs
         self.arity = arity
         self.consequent = consequent
@@ -899,7 +899,7 @@ class Verifier:
                     )
                     for j in range(0, self.arity)
                 ]
-                combined = self.strategy.combine(cuts_in_j)
+                combined = self.exploration_strategy.combine(cuts_in_j)
                 new_goals : Iterable[VerifyGoal] = map(lambda pg: self.pregoal_to_goal(goal, pg), combined)
                 # TODO what now?
                 continue
@@ -1250,7 +1250,7 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
         
     verifier = Verifier(
         settings=settings,
-        strategy=StupidStrategy(),
+        exploration_strategy=StupidExplorationStrategy(),
         user_cutpoints=user_cutpoints_2,
         rs=rs,
         arity=len(antecedent.clp.lp.patterns),
