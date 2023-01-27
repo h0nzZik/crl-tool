@@ -573,6 +573,7 @@ class VerifyGoal:
     component_matches_something : List[bool]
 
     was_processed_by_advance_general : bool = False
+    try_stepping : bool
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
@@ -586,7 +587,8 @@ class VerifyGoal:
             total_steps=dct['total_steps'],
             #max_depth=dct['max_depth'],
             was_processed_by_advance_general=dct['was_processed_by_advance_general'],
-            component_matches_something=dct['component_matches_something']
+            component_matches_something=dct['component_matches_something'],
+            try_stepping=dct['try_stepping'],
         )
     
     @property
@@ -601,7 +603,8 @@ class VerifyGoal:
             'total_steps' : self.total_steps,
             #'max_depth' : self.max_depth,
             'was_processed_by_advance_general' : self.was_processed_by_advance_general,
-            'component_matches_something' : self.component_matches_something
+            'component_matches_something' : self.component_matches_something,
+            'try_stepping' : self.try_stepping,
         }
 
     def is_fully_stuck(self) -> bool:
@@ -625,7 +628,6 @@ class VerifyQuestion:
     goals : List[VerifyGoal]
     depth : List[int]
     #source_of_question : Optional[List[int]] # index, or nothing for initial
-    try_stepping : bool
 
 
     @staticmethod
@@ -633,7 +635,6 @@ class VerifyQuestion:
         return VerifyQuestion(
             goals=list(map(VerifyGoal.from_dict, dct['goals'])),
             depth=dct['depth'],
-            try_stepping=dct['try_stepping'],
         )
     
     @property
@@ -641,7 +642,6 @@ class VerifyQuestion:
         return {
             'goals' : list(map(lambda g: g.dict, self.goals)),
             'depth' : self.depth,
-             'try_stepping' : self.try_stepping,
         }
 
     #def is_worth_trying(self) -> bool:
@@ -913,8 +913,11 @@ class Verifier:
 
         # `j` is the index that we keep constant, as in the 'goal'
         for j in range(self.arity):
+            # But only if it is worth it
+            if not goal.component_matches_something[j]:
+                continue
             for combination in combinations:
-                # `jprime` is the index that we muta
+                # `jprime` is the index that we update
                 for jprime in range(self.arity):
                     if jprime == j:
                         continue
