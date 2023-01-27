@@ -3,6 +3,13 @@ import json
 import time
 import pygtrie # type: ignore
 
+from abc import (
+    ABC,
+    abstractmethod,
+)
+
+from collections.abc import Iterable
+
 from dataclasses import dataclass
 
 from functools import (
@@ -738,9 +745,46 @@ class CutElement:
 class ExeCut:
     ces : List[CutElement]
 
+@dataclass
+class PreGoal:
+    patterns: List[Pattern]
+    absolute_depths: List[int]
+
+# Combines execution tree cuts from different executions
+def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
+    ecutelements : List[List[CutElement]] = [ec.ces for ec in ecuts]
+    combined : List[List[CutElement]] = [list(e) for e in product(*ecutelements)]
+    pregoals : List[PreGoal] = [
+        PreGoal(
+            patterns = [ce.phi for ce in comb],
+            absolute_depths = [ce.depth for ce in comb],
+        )
+        for comb in combined
+    ]
+
+    return pregoals
+
+
+class Strategy(ABC):
+    @abstractmethod
+    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoal]:
+        ...
+
+# This strategy assumes that all the streams are finite
+class StupidStrategy(Strategy):
+    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoal]:
+        # arity == len(streams)
+        lists : List[List[ExeCut]] = [ list(s) for s in streams ]
+        # arity == len(lists)
+        combinations : List[List[ExeCut]] = [list(e) for e in product(*lists)]
+        # for any c in combinations, arity == len(c)
+        pgsl : List[List[PreGoal]] = [combine_exe_cuts(combination) for combination in combinations]
+        pgs = chain(*pgsl)
+        return pgs
 
 class Verifier:
     settings: VerifySettings
+    strategy : Strategy
     user_cutpoints : Dict[str, ECLP]
     rs: ReachabilitySystem
     arity : int
@@ -770,8 +814,17 @@ class Verifier:
 
     ps = PerformanceStatistics()
 
-    def __init__(self, settings: VerifySettings, user_cutpoints : Dict[str, ECLP], rs: ReachabilitySystem, arity: int, antecedent : ECLP, consequent: ECLP):
+    def __init__(self,
+        settings: VerifySettings,
+        strategy: Strategy,
+        user_cutpoints : Dict[str, ECLP],
+        rs: ReachabilitySystem,
+        arity: int,
+        antecedent : ECLP,
+        consequent: ECLP
+    ):
         self.settings = settings
+        self.strategy = strategy
         self.rs = rs
         self.arity = arity
         self.consequent = consequent
@@ -1228,6 +1281,7 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
         
     verifier = Verifier(
         settings=settings,
+        strategy=StupidStrategy(),
         user_cutpoints=user_cutpoints_2,
         rs=rs,
         arity=len(antecedent.clp.lp.patterns),
