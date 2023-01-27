@@ -827,7 +827,7 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         self._stack.extend(gcs)
         return
 
-
+@dataclass
 class APGResult:
     new_goal: Optional[VerifyGoal]
     proved: bool
@@ -1105,7 +1105,7 @@ class Verifier:
             
         if (len(usable_cutpoints) > 0):
             new_goal_id = self.fresh_goal_id()
-            _LOGGER.info(f'Question {idx}, goal ID {goal.goal_id}: using a cutpoint to create goal with ID {new_goal_id}')
+            _LOGGER.info(f'Using a cutpoint to create goal with ID {new_goal_id}')
             # apply Conseq (using [subst]) to change the goal to [antecedentC]
             # apply Circularity
             # We filter [user_cutpoints] to prevent infinite loops
