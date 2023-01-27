@@ -890,7 +890,7 @@ class Verifier:
             #stuck=[False for _ in range(arity)],
             #max_depth = [self.settings.max_depth for _ in range(arity)],
             #component_matches_something=[False for _ in range(arity)],
-            total_steps=index_zero(),
+            total_steps=[0 for _ in range(arity)],
             #try_stepping=True,
         )
         self.goal_conj_chooser_strategy.insert_conjunctions([GoalConjunction(goals = [goal], can_make_steps = True)])
@@ -934,7 +934,7 @@ class Verifier:
             for goal in conj.goals
         ]
         if all([apgr.proved for _,apgr in apgresults]):
-            _LOGGER.info("All goals of the conjunction were proved")
+            _LOGGER.info(f"All goals ({len(apgresults)}) of the conjunction were proved")
             return True
         
         if not conj.can_make_steps:
@@ -962,6 +962,7 @@ class Verifier:
         new_goals_pre_conj : List[Iterable[GoalConjunction]] = []
         # All of these have to hold
         for goal in goals_after_generalization:
+            _LOGGER.info(f"Making steps on goal {goal.goal_id}")
             cuts_in_j : List[Iterable[ExeCut]] = [
                 self.advance_to_limit(
                     phi=goal.antecedent.clp.lp.patterns[j],
@@ -1208,7 +1209,7 @@ class Verifier:
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
     ) -> Iterable[ExeCut]:
-        
+        _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
         # This is the initial cut
         elements_to_explore_next : ExeCut = ExeCut(ces=[
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
@@ -1219,7 +1220,7 @@ class Verifier:
             curr_cut = ExeCut(ces=[])
             while len(elements_to_explore_now) > 0:
                 ce : CutElement = elements_to_explore_now.pop()
-                assert(not ce.matches)
+                #assert(not ce.matches)
                 assert(not ce.stuck)
                 _LOGGER.info(f"Exploring element in depth {ce.depth}")
 
@@ -1276,12 +1277,14 @@ class Verifier:
                         phi=p,
                         depth=ce.depth+1,
                         stuck=False,
-                    matches=matches1,
+                        matches=matches1,
                         progress_from_initial=True
                     )
-                    if matches:
+                    if matches1:
                         curr_cut.ces.append(new_ce)
+                    # FIXME: why?
                     # We are NOT adding this element to `elements_to_explore_next` to be explored next
+                    elements_to_explore_next.ces.append(new_ce)
                     continue
                 continue
 
