@@ -574,11 +574,11 @@ class VerifyGoal:
     instantiated_cutpoints : Dict[str,ECLP]
     flushed_cutpoints : Dict[str,ECLP]
     user_cutpoint_blacklist : List[str]
-    stuck : List[bool]
+    #stuck : List[bool]
     total_steps : List[int]
     #max_depth : List[int]
-    component_matches_something : List[bool]
-    try_stepping : bool
+    #component_matches_something : List[bool]
+    #try_stepping : bool
     was_processed_by_advance_general : bool = False
     
 
@@ -590,12 +590,12 @@ class VerifyGoal:
             instantiated_cutpoints={k : ECLP.from_dict(dct['instantiated_cutpoints'][k]) for k in dct['instantiated_cutpoints']},
             flushed_cutpoints={k : ECLP.from_dict(dct['flushed_cutpoints'][k]) for k in dct['flushed_cutpoints']},
             user_cutpoint_blacklist=dct['user_cutpoint_blacklist'],
-            stuck=list(map(lambda s: bool(s), dct['stuck'])),
+            #stuck=list(map(lambda s: bool(s), dct['stuck'])),
             total_steps=dct['total_steps'],
             #max_depth=dct['max_depth'],
             was_processed_by_advance_general=dct['was_processed_by_advance_general'],
-            component_matches_something=dct['component_matches_something'],
-            try_stepping=dct['try_stepping'],
+            #component_matches_something=dct['component_matches_something'],
+            #try_stepping=dct['try_stepping'],
         )
     
     @property
@@ -606,16 +606,16 @@ class VerifyGoal:
             'instantiated_cutpoints' : {k : self.instantiated_cutpoints[k].dict for k in self.instantiated_cutpoints},
             'flushed_cutpoints' : {k : self.flushed_cutpoints[k].dict for k in self.flushed_cutpoints},
             'user_cutpoint_blacklist' : self.user_cutpoint_blacklist,
-            'stuck' : self.stuck,
+            #'stuck' : self.stuck,
             'total_steps' : self.total_steps,
             #'max_depth' : self.max_depth,
             'was_processed_by_advance_general' : self.was_processed_by_advance_general,
-            'component_matches_something' : self.component_matches_something,
-            'try_stepping' : self.try_stepping,
+            #'component_matches_something' : self.component_matches_something,
+            #'try_stepping' : self.try_stepping,
         }
 
-    def is_fully_stuck(self) -> bool:
-        return all(self.stuck)
+    #def is_fully_stuck(self) -> bool:
+    #    return all(self.stuck)
     
 #    def copy(self):
 #        return VerifyGoal(
@@ -628,12 +628,9 @@ class VerifyGoal:
 #    pass
 
 @dataclass
-class VerifyQuestion:
-    # None means impossible / failed branch / a goal with no solution.
-    # We store such value because one entry in the hypercube can be reached from multiple sides,
-    # and we do not want to 
-    goals : List[VerifyGoal]
-    depth : List[int]
+class VerifyQuestion: 
+    goals : Iterable[VerifyGoal]
+    #depth : List[int]
     #source_of_question : Optional[List[int]] # index, or nothing for initial
 
 
@@ -641,14 +638,14 @@ class VerifyQuestion:
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyQuestion':
         return VerifyQuestion(
             goals=list(map(VerifyGoal.from_dict, dct['goals'])),
-            depth=dct['depth'],
+            #depth=dct['depth'],
         )
     
     @property
     def dict(self) -> Dict[str, Any]:
         return {
             'goals' : list(map(lambda g: g.dict, self.goals)),
-            'depth' : self.depth,
+            #'depth' : self.depth,
         }
 
     #def is_worth_trying(self) -> bool:
@@ -720,18 +717,6 @@ def add_on_position(l: List[int], j: int, m: int) -> List[int]:
     l2 = l.copy()
     l2[j] += m
     return l2
-
-@dataclass
-class Projection:
-    pattern : Pattern
-    depth : int
-    stuck : bool
-    matches : bool
-    instantiated_cutpoints : List[ECLP]
-    flushed_cutpoints : List[ECLP]
-    user_cutpoint_blacklist : List[ECLP]
-    projected_from : VerifyGoal
-
 
 @dataclass
 class CutElement:
@@ -848,13 +833,13 @@ class Verifier:
                     instantiated_cutpoints=dict(),
                     flushed_cutpoints=dict(),
                     user_cutpoint_blacklist=[],
-                    stuck=[False for _ in range(arity)],
+                    #stuck=[False for _ in range(arity)],
                     #max_depth = [self.settings.max_depth for _ in range(arity)],
-                    component_matches_something=[False for _ in range(arity)],
+                    #component_matches_something=[False for _ in range(arity)],
                     total_steps=index_zero(),
-                    try_stepping=True,
+                    #try_stepping=True,
                 )],
-                depth=index_zero(),
+                #depth=index_zero(),
             ),
             index = index_zero(),
             processed=False,
@@ -903,7 +888,7 @@ class Verifier:
                 return False
             
             for goal in e.question.goals:
-                cuts_in_j : Iterable[ExeCut]= [
+                cuts_in_j : List[Iterable[ExeCut]] = [
                     self.advance_to_limit(
                         phi=goal.antecedent.clp.lp.patterns[j],
                         depth=goal.total_steps[j],
@@ -914,6 +899,8 @@ class Verifier:
                     )
                     for j in range(0, self.arity)
                 ]
+                combined = self.strategy.combine(cuts_in_j)
+                new_goals : Iterable[VerifyGoal] = map(lambda pg: self.pregoal_to_goal(goal, pg), combined)
                 # TODO what now?
                 continue
             e.processed = True
@@ -926,20 +913,20 @@ class Verifier:
             self.trie[new_index] = new_entry
             return False
 
-    def list_of_cut_elements_to_goal(self, goal: VerifyGoal, cut_elements: List[CutElement]) -> VerifyGoal:
-        assert(len(cut_elements) == self.arity)
+    def pregoal_to_goal(self, goal: VerifyGoal, pregoal: PreGoal) -> VerifyGoal:
+        assert(len(pregoal.patterns) == self.arity)
         goal_id = self.fresh_goal_id()
         antecedent = ECLP(
             vars = [],
             clp = CLP(
                 constraint = goal.antecedent.clp.constraint,
                 lp = LP (
-                    patterns = list(map(lambda ce: ce.phi, cut_elements))
+                    patterns = pregoal.patterns
                 )
             )
         )
         
-        progress : bool = any([ce.progress_from_initial for ce in cut_elements])
+        progress : bool = any(pregoal.progress_from_initial)
         flushed_cutpoints : Dict[str,ECLP] = self.new_flushed_cutpoints(
             instantiated_cutpoints=goal.instantiated_cutpoints,
             flushed_cutpoints=goal.flushed_cutpoints,
@@ -951,9 +938,8 @@ class Verifier:
             progress=progress,
         )
         user_cutpoint_blacklist : List[str] = goal.user_cutpoint_blacklist
-        stuck : List[bool] = [ce.stuck for ce in cut_elements]
-        total_steps : List[int] = [ce.depth for ce in cut_elements]
-        component_matches_something : List[bool] = [ce.matches for ce in cut_elements]
+        #stuck : List[bool] = [ce.stuck for ce in cut_elements]
+        #component_matches_something : List[bool] = [ce.matches for ce in cut_elements]
 
         return VerifyGoal(
             goal_id=goal_id,
@@ -961,34 +947,10 @@ class Verifier:
             flushed_cutpoints=flushed_cutpoints,
             instantiated_cutpoints=instantiated_cutpoints,
             user_cutpoint_blacklist=user_cutpoint_blacklist,
-            stuck=stuck,
-            total_steps=total_steps,
-            component_matches_something=component_matches_something,
+            #stuck=stuck,
+            total_steps=pregoal.absolute_depths,
+            #component_matches_something=component_matches_something,
         )
-
-    def combine_cuts(self, goal: VerifyGoal, cuts: List[List[CutElement]]) -> None:
-        combined : List[VerifyGoal] = []
-        # Those are the obvious ones.
-        combinations = list(product(*cuts))
-        # TODO maybe we have to filter out those where there was no progress_from_initial?
-        # But we also have to explore the ones for which some, but not all, components remain the same.
-        # (The 'all components are the same' is the current situation, and we have already checked that
-        #  using `advance_proof_general`.)
-        non_obvious_combinations = []
-
-        # `j` is the index that we keep constant, as in the 'goal'
-        for j in range(self.arity):
-            # But only if it is worth it
-            if not goal.component_matches_something[j]:
-                continue
-            for combination in combinations:
-                # `jprime` is the index that we update
-                for jprime in range(self.arity):
-                    if jprime == j:
-                        continue
-                
-
-        pass
 
 
     def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
@@ -999,7 +961,7 @@ class Verifier:
         return r
 
     def advance_proof_general(self, idx: List[int], q: VerifyQuestion) -> List[VerifyGoal]:
-        _LOGGER.info(f"Question {idx} in general. Goals: {len(q.goals)}")
+        _LOGGER.info(f"Question {idx} in general.")
         new_goals : List[VerifyGoal] = []
         for goal in q.goals:
 
@@ -1008,7 +970,7 @@ class Verifier:
                 continue
             goal.was_processed_by_advance_general = True
 
-            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, directions {len([True for b in goal.stuck if not b])}, flushed cutpoints {len(goal.flushed_cutpoints)}")
+            _LOGGER.info(f"Question {idx}, goal ID {goal.goal_id}, flushed cutpoints {len(goal.flushed_cutpoints)}")
             
             implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
             if implies_result.valid:
@@ -1069,11 +1031,11 @@ class Verifier:
                     instantiated_cutpoints=ic,
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=ucp,
-                    stuck=goal.stuck.copy(),
+                    #stuck=goal.stuck.copy(),
                     total_steps=goal.total_steps.copy(),
                     # FIXME Well, it matches the current usable cutpoint, right? And other usable cutpoints.
                     # So this is not really true. TODO think about it more
-                    component_matches_something = [False for _ in range(self.arity)]
+                    #component_matches_something = [False for _ in range(self.arity)]
                 ))
                 continue
             new_goals.append(goal)
@@ -1161,12 +1123,12 @@ class Verifier:
         elements_to_explore_next : ExeCut = ExeCut(ces=[
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
         ])
-        while len(elements_to_explore_next) > 0:
+        while len(elements_to_explore_next.ces) > 0:
             elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces
             elements_to_explore_next.ces = []
             curr_cut = ExeCut(ces=[])
             while len(elements_to_explore_now) > 0:
-                ce : CutElement = elements_to_explore.pop()
+                ce : CutElement = elements_to_explore_now.pop()
                 assert(not ce.matches)
                 assert(not ce.stuck)
                 _LOGGER.info(f"Exploring element in depth {ce.depth}")
