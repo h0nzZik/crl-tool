@@ -176,7 +176,7 @@ def print_vquestion(rs: ReachabilitySystem, q: VerifyQuestion):
         #    print('Unsolvable')
         #    continue
         g : VerifyGoal = g0
-        print(f'Goal ID {g.goal_id}. Stuck: { g.stuck }')
+        print(f'Goal ID {g.goal_id}.')
         pprint_eclp(rs, g.antecedent)
         print('Flushed cutpoints')
         continue
@@ -187,7 +187,7 @@ def view_dump(rs: ReachabilitySystem, args) -> int:
         the_dump = json.load(fr)
         entries : List[VerifyEntry] = [VerifyEntry.from_dict(e) for e in the_dump ]
         tgt : List[int] = list(map(lambda s: int(s), args['target']))
-        selected : List[VerifyQuestion] = [e.question for e in entries if e.question is not None and e.question.depth == tgt ]
+        selected : List[VerifyQuestion] = [] # [e.question for e in entries if e.question is not None and e.question.depth == tgt ]
         # Usually, there should be at most one
         for q in selected:
             #print(f'Proof state {i} in depth {s.depth}, generated from {s.source_of_question}: ')
@@ -212,7 +212,7 @@ def prove(rs: ReachabilitySystem, args) -> int:
         verifier = prepare_verifier(
             rs=rs, 
             settings=settings,
-            user_cutpoints=[],
+            user_cutpoints=dict(),
             antecedent=claim.antecedent, 
             consequent=claim.consequent,
         )
@@ -225,14 +225,15 @@ def prove(rs: ReachabilitySystem, args) -> int:
 
         if (not result.proved) and (args['dump_on_failure'] is not None):
             with open(args['dump_on_failure'], 'w') as fw:
-                fw.write(verifier.dump())
+                print("Dumping is not supported right now")
+                #fw.write(verifier.dump())
 
         print(f'Have {len(result.final_states)} remaining questions:')
         if (args['no_print']):
             print("(omitted).")
             return 0
         for s,i in zip(result.final_states, range(len(result.final_states))):
-            print(f'Proof state {i} in depth {s.depth}, generated from {s.source_of_question}: ')
+            print(f'Proof state {i}: ')
             for g0 in s.goals:
                 if not isinstance(g0, VerifyGoal):
                     print('Unsolvable')
