@@ -13,4 +13,5 @@ build-backend = "setuptools.build_meta"
 
 
 [project.scripts]
-crl-tool = "crltool.__main__:main"
+crl-tool = "crltool.__main__:main_main"
+crl-tool-perf = "crltool.__main__:main"
