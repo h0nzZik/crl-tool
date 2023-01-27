@@ -941,13 +941,19 @@ class Verifier:
             _LOGGER.info("Some goals of the conjunction were NOT proved, and we are NOT allowed to make steps")
             return False
 
-        new_goals = [
-            apgr.new_goal if apgr_new_goal is not None else old_goal
+        # Ok, so now we make steps, because we can.
+        # But consider the results from making a step:
+        # some were generated from a generalized goal,
+        # while other from an old goal.
+        # In the future, we want to make steps on the ones from the former,
+        # but not from the latter.
+        goals_after_generalization : List[Tuple[VerifyGoal, bool]] = [
+            (apgr.new_goal, True) if apgr_new_goal is not None else (old_goal, False)
             for old_goal, apgr in apgresults
             if not apgr.proved
         ]
         _LOGGER.info(f"Going to make steps on {len(new_goals)} goals")
-        for goal in new_goals:
+        for goal, can_make_further_steps in goals_after_generalization:
             cuts_in_j : List[Iterable[ExeCut]] = [
                 self.advance_to_limit(
                     phi=goal.antecedent.clp.lp.patterns[j],
@@ -961,11 +967,16 @@ class Verifier:
             ]
             combined = self.exploration_strategy.combine(cuts_in_j)
             combined_filtered = filter_out_pregoals_with_no_progress(combined)
-            new_goals : Iterable[VerifyGoal] = map(lambda pg: self.pregoal_to_goal(goal, pg), combined)
+            new_goals : Iterable[VerifyGoal] = map(
+                lambda pg: self.pregoal_to_goal(goal, pg, can_make_steps=can_make_further_steps),
+                combined
+            )
+            # Ok, so at least one of the new goals have to hold for the old goal to be verified.
+            # But: the task was to prove all the goals from the conjunction
             # TODO what now?
             continue
         raise NotImplementedError("I thought this to be unreachable")
-        
+
     def pregoal_to_goal(self, goal: VerifyGoal, pregoal: PreGoal) -> VerifyGoal:
         assert(len(pregoal.patterns) == self.arity)
         goal_id = self.fresh_goal_id()
