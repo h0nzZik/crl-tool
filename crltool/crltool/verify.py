@@ -628,6 +628,10 @@ class VerifyGoal:
 #    pass
 
 @dataclass
+class GoalConjunction:
+    goals : List[VerifyGoal]
+
+@dataclass
 class VerifyQuestion: 
     goals : Iterable[VerifyGoal]
     #depth : List[int]
@@ -736,6 +740,12 @@ class PreGoal:
     absolute_depths: List[int]
     progress_from_initial: List[bool]
 
+# Represents a bunch of pre-goals which all have to be valid at the same time
+# if they are to represent a proof
+@dataclass
+class PreGoalConjunction:
+    pregoals: List[PreGoal]
+
 # Combines execution tree cuts from different executions
 def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
     ecutelements : List[List[CutElement]] = [ec.ces for ec in ecuts]
@@ -753,27 +763,56 @@ def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
 
 
 class ExplorationStrategy(ABC):
+    # Exploration strategy for a particular question.
+    # Here we have a stream of execution cuts for every dimension,
+    # and the strategy is combining them into bunches pre-goals.
+    # The order of the generated pregoals really depends on the strategy.
+    # For example, we might have a DFS-like strategy going deeply into one dimension,
+    # or a BFS-like strategy which tries to stay on the same depth in all dimensions;
+    # or a lockstep strategy which goes like (0,0),(1,1),(2,2) and ignores the rest.
+    # The strategy does not necessarily have to generate all combinations of the ExeCuts,
+    # but then the risk is that the verifier will not find a proof even if there exists one.
+    # However, every yielded PreGoalConjunction has to be exhaustive.
+    # Such can be generated from an ExeCut for each direction by `combine_exe_cuts`.
     @abstractmethod
-    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoal]:
+    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
         ...
 
 # This exploration_strategy assumes that all the streams are finite
 class StupidExplorationStrategy(ExplorationStrategy):
-    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoal]:
+    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
         # arity == len(streams)
         lists : List[List[ExeCut]] = [ list(s) for s in streams ]
         # arity == len(lists)
         combinations : List[List[ExeCut]] = [list(e) for e in product(*lists)]
         # for any c in combinations, arity == len(c)
-        pgsl : List[List[PreGoal]] = [combine_exe_cuts(combination) for combination in combinations]
-        pgs = chain(*pgsl)
-        return pgs
+        pgcs : List[PreGoalConjunction] = [
+            PreGoalConjunction(pregoals=combine_exe_cuts(combination))
+            for combination in combinations
+        ]
+        return pgcs
 
-def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoal]) -> Iterable[PreGoal]:
-    for pg in pregoals:
-        if any(pg.progress_from_initial):
-            yield pg
+def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoalConjunction]) -> Iterable[PreGoalConjunction]:
+    for pgc in pregoals:
+        if len(pgc.pregoals) == 1:
+            if not any(pgc.pregoals[0].progress_from_initial):
+                continue
+        yield pgc
     return
+
+# We have a bunch of conjunctions of goals, and we want to prove at least one conjunction of those.
+# This class manages the conjunctions
+class GoalConjunctionChooserStrategy(ABC):
+    # Returns one conjunction and removes it from the internal store.
+    # None means that there are no remaining conjunctions
+    def pick_some(self) -> Optional[VerifyGoalConjunction]:
+        ...
+    
+    def insert_conjunctions(self, Iterable[VerifyGoalConjunction]) -> None:
+        ...
+    
+
+
 
 class Verifier:
     settings: VerifySettings
@@ -900,6 +939,7 @@ class Verifier:
                     for j in range(0, self.arity)
                 ]
                 combined = self.exploration_strategy.combine(cuts_in_j)
+                combined_filtered = filter_out_pregoals_with_no_progress(combined)
                 new_goals : Iterable[VerifyGoal] = map(lambda pg: self.pregoal_to_goal(goal, pg), combined)
                 # TODO what now?
                 continue
