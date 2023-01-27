@@ -571,9 +571,9 @@ class VerifyGoal:
     total_steps : List[int]
     #max_depth : List[int]
     component_matches_something : List[bool]
-
-    was_processed_by_advance_general : bool = False
     try_stepping : bool
+    was_processed_by_advance_general : bool = False
+    
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
@@ -734,7 +734,11 @@ class CutElement:
     stuck : bool
     progress_from_initial : bool
 
-#@dataclass # ???
+@dataclass
+class ExeCut:
+    ces : List[CutElement]
+
+
 class Verifier:
     settings: VerifySettings
     user_cutpoints : Dict[str, ECLP]
@@ -786,9 +790,9 @@ class Verifier:
                     stuck=[False for _ in range(arity)],
                     #max_depth = [self.settings.max_depth for _ in range(arity)],
                     component_matches_something=[False for _ in range(arity)],
-                    total_steps=index_zero()
+                    total_steps=index_zero(),
+                    try_stepping=True,
                 )],
-                try_stepping=True,
                 depth=index_zero(),
             ),
             index = index_zero(),
@@ -838,8 +842,8 @@ class Verifier:
                 return False
             
             for goal in e.question.goals:
-                cut_in_j : List[List[CutElement]] = [
-                    self.advance_to_cut(
+                cuts_in_j : List[ExeCut]= [
+                    self.advance_to_limit(
                         phi=goal.antecedent.clp.lp.patterns[j],
                         depth=goal.total_steps[j],
                         j=j,
@@ -1082,7 +1086,7 @@ class Verifier:
         else:
             return instantiated_cutpoints
 
-    def advance_to_cut(
+    def advance_to_limit(
         self,
         phi: Pattern,
         depth: int,
@@ -1090,89 +1094,95 @@ class Verifier:
         instantiated_cutpoints : Dict[str, ECLP],
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
-    ) -> List[CutElement]:
-        final_elements : List[CutElement]
-        elements_to_explore : List[CutElement] = [
+    ) -> List[ExeCut]:
+        executs : List[ExeCut] = []
+        
+        elements_to_explore_next : List[CutElement] = [
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
         ]
-        while len(elements_to_explore) > 0:
-            ce : CutElement = elements_to_explore.pop()
-            assert(not ce.matches)
-            assert(not ce.stuck)
-            _LOGGER.info(f"Exploring element in depth {ce.depth}")
+        while len(elements_to_explore_next) > 0:
+            elements_to_explore_now : List[CutElement] = elements_to_explore_next
+            elements_to_explore_next = []
+            executs.append(ExeCut(ces=[]))
+            while len(elements_to_explore_now) > 0:
+                ce : CutElement = elements_to_explore.pop()
+                assert(not ce.matches)
+                assert(not ce.stuck)
+                _LOGGER.info(f"Exploring element in depth {ce.depth}")
 
-            if ce.depth >= self.settings.max_depth:
-                _LOGGER.info(f"Maximal depth reached")
-                final_elements.append(ce)
-                continue
+                if ce.depth >= self.settings.max_depth:
+                    _LOGGER.info(f"Maximal depth reached")
+                    executs[-1].ces.append(ce)
+                    # We are NOT adding ce into `elements_to_explore_next`
+                    continue
 
-            step_result : ExecuteResult = self.symbolic_step(ce.phi)
-            if step_result.reason == StopReason.BRANCHING:
-                assert(step_result.next_states is not None)
-                assert(len(step_result.next_states) > 1)
-                _LOGGER.info(f"Branching in depth {ce.depth}")
-                bs = list(map(lambda s: s.kore, step_result.next_states))
-                for b in bs:
-                    matches : bool = self.approx_implies_something(
-                        pattern_j=b,
+                step_result : ExecuteResult = self.symbolic_step(ce.phi)
+                if step_result.reason == StopReason.BRANCHING:
+                    assert(step_result.next_states is not None)
+                    assert(len(step_result.next_states) > 1)
+                    _LOGGER.info(f"Branching in depth {ce.depth}")
+                    bs = list(map(lambda s: s.kore, step_result.next_states))
+                    for b in bs:
+                        matches : bool = self.approx_implies_something(
+                            pattern_j=b,
+                            j=j,
+                            flushed_cutpoints=self.new_flushed_cutpoints(
+                                instantiated_cutpoints=instantiated_cutpoints,
+                                flushed_cutpoints=flushed_cutpoints,
+                                progress=ce.progress_from_initial, # TODO or True?
+                            ),
+                            user_cutpoint_blacklist=user_cutpoint_blacklist
+                        )
+                        new_ce1 : CutElement = CutElement(
+                            phi=b,
+                            depth=ce.depth+1,
+                            stuck=False,
+                            matches=matches,
+                            progress_from_initial=ce.progress_from_initial # TODO: or True?
+                        )
+
+                        if matches:
+                            executs[-1].ces.append(new_ce1)
+                        elements_to_explore_next.append(new_ce1)
+                        continue
+                    continue
+                if step_result.reason == StopReason.DEPTH_BOUND:
+                    _LOGGER.info(f"Progress in depth {ce.depth}")
+                    p : Pattern = step_result.state.kore
+                    matches1 : bool = self.approx_implies_something(
+                        pattern_j=p,
                         j=j,
                         flushed_cutpoints=self.new_flushed_cutpoints(
                             instantiated_cutpoints=instantiated_cutpoints,
                             flushed_cutpoints=flushed_cutpoints,
-                            progress=ce.progress_from_initial, # TODO or True?
+                            progress=True
                         ),
                         user_cutpoint_blacklist=user_cutpoint_blacklist
                     )
-                    new_ce1 : CutElement = CutElement(
-                        phi=b,
+                    new_ce : CutElement = CutElement(
+                        phi=p,
                         depth=ce.depth+1,
                         stuck=False,
-                        matches=matches,
-                        progress_from_initial=ce.progress_from_initial # TODO: or True?
+                    matches=matches1,
+                        progress_from_initial=True
                     )
-
                     if matches:
-                        final_elements.append(new_ce1)
-                    else:
-                        elements_to_explore.append(new_ce1)
+                        executs[-1].ces.append(new_ce)
+                    
+                    # We are NOT adding this element to `elements_to_explore_next` to be explored next
                     continue
                 continue
-            if step_result.reason == StopReason.DEPTH_BOUND:
-                _LOGGER.info(f"Progress in depth {ce.depth}")
-                p : Pattern = step_result.state.kore
-                matches1 : bool = self.approx_implies_something(
-                    pattern_j=p,
-                    j=j,
-                    flushed_cutpoints=self.new_flushed_cutpoints(
-                        instantiated_cutpoints=instantiated_cutpoints,
-                        flushed_cutpoints=flushed_cutpoints,
-                        progress=True
-                    ),
-                    user_cutpoint_blacklist=user_cutpoint_blacklist
-                )
-                new_ce : CutElement = CutElement(
-                    phi=p,
-                    depth=ce.depth+1,
-                    stuck=False,
-                    matches=matches1,
-                    progress_from_initial=True
-                )
-                if matches:
-                    final_elements.append(new_ce)
-                else:
-                    elements_to_explore.append(new_ce)
-                continue
+
+                if step_result.reason == StopReason.STUCK:
+                    _LOGGER.info(f"Stuck in depth {ce.depth}")
+                    #ce.stuck = True
+                    #final_elements.append(ce)
+                    continue
+                _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
+                raise RuntimeError()
             continue
 
-            if step_result.reason == StopReason.STUCK:
-                _LOGGER.info(f"Stuck in depth {ce.depth}")
-                ce.stuck = True
-                final_elements.append(ce)
-                continue
-            _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
-            raise RuntimeError()
-
-        return final_elements
+        return executs
 
 
 def rename_vars_lp(renaming: Dict[str, str], lp: LP):
