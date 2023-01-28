@@ -9,6 +9,10 @@ from typing import (
     IO,
 )
 
+from pyk.kast.outer import (
+    KDefinition,
+)
+
 from pyk.ktool.kprint import (
     KPrint
 )
@@ -109,3 +113,7 @@ class ReachabilitySystem:
     @cached_property
     def top_sort(self) -> Sort:
         return get_symbol_sort(self.definition, self.main_module_name, get_top_cell_initializer(self.definition))
+    
+    @cached_property
+    def kast_definition(self) -> KDefinition:
+        return self.kprint.definition

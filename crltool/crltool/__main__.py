@@ -19,11 +19,14 @@ from pyk.kast.outer import (
     KFlatModuleList,
     read_kast_definition,
     KClaim,
+    KApply,
+    KLabel,
 )
 
 from pyk.kast.manip import (
     extract_lhs,
     extract_rhs,
+    rename_generated_vars,
 )
 
 from pyk.kore.syntax import (
@@ -262,7 +265,18 @@ def prove(rs: ReachabilitySystem, args) -> int:
     return 0
 
 def claim_is_cartesian(claim: KClaim) -> bool:
-    return False # TODOe implement
+    return False # TODO implement
+
+def prelude_list_to_metalist(term: KInner) -> List[KInner]:
+    match term:
+        case KApply(KLabel('_List_', _), (left,right)):
+            return prelude_list_to_metalist(left) + prelude_list_to_metalist(right)
+        case KApply(KLabel('ListItem', _), (value,)):
+            return [value]
+        # TODO: what about empty list (.List) ?
+        case _:
+            raise ValueError(f"Not a list: {term}")
+
 
 def load_frontend_spec(rs: ReachabilitySystem, args):
     #d = read_kast_definition(args['specification'])
@@ -274,11 +288,23 @@ def load_frontend_spec(rs: ReachabilitySystem, args):
             if mod.name == ml.main_module:
                 for claim in mod.claims:
                     cart : bool = claim_is_cartesian(claim)
-                    lhs = extract_lhs(claim.body)
-                    rhs = extract_rhs(claim.body)
                     print(f"cartesian? {cart}")
-                    print(f"lhs: {lhs}")
-                    print(f"rhs: {rhs}")
+                    body = claim.body
+                    lhs = extract_lhs(body)
+                    rhs = extract_rhs(body)
+                    list_lhs = prelude_list_to_metalist(lhs)
+                    list_rhs = prelude_list_to_metalist(rhs)
+                    print(f"lhs: {list_lhs}")
+                    print(f"rhs: {list_rhs}")
+                    list_lhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_lhs]
+                    list_rhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_rhs]
+                    print(f"lhsi: {list_lhs0}")
+                    print(f"rhsi: {list_rhs0}")
+                    list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs0]
+                    list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs0]
+                    
+                    print(f"lhs: {list_lhs_kore}")
+                    print(f"rhs: {list_rhs_kore}")
                 return 0
     return 0
 
