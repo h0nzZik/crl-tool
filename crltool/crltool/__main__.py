@@ -283,33 +283,31 @@ def prelude_list_to_metalist(term: KInner) -> List[KInner]:
 
 
 def load_frontend_spec(rs: ReachabilitySystem, args):
-    #d = read_kast_definition(args['specification'])
-    with open(args['specification'], 'r') as spec_f:
-        jsspec = json.loads(spec_f.read())
-        ml = KFlatModuleList.from_dict(jsspec['term'])
-        #print(ml)
-        for mod in ml.modules:
-            if mod.name == ml.main_module:
-                for claim in mod.claims:
-                    cart : bool = claim_is_cartesian(claim)
-                    print(f"cartesian? {cart}")
-                    body = claim.body
-                    lhs = extract_lhs(body)
-                    rhs = extract_rhs(body)
-                    list_lhs = prelude_list_to_metalist(lhs)
-                    list_rhs = prelude_list_to_metalist(rhs)
-                    print(f"lhs: {list_lhs}")
-                    print(f"rhs: {list_rhs}")
-                    list_lhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_lhs]
-                    list_rhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_rhs]
-                    print(f"lhsi: {list_lhs0}")
-                    print(f"rhsi: {list_rhs0}")
-                    list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs0]
-                    list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs0]
-                    
-                    print(f"lhs: {list_lhs_kore}")
-                    print(f"rhs: {list_rhs_kore}")
-                return 0
+    jsspec = get_kprove_generated_json(rs=rs, specification=args['specification'])
+    ml = KFlatModuleList.from_dict(jsspec['term'])
+    #print(ml)
+    for mod in ml.modules:
+        if mod.name == ml.main_module:
+            for claim in mod.claims:
+                cart : bool = claim_is_cartesian(claim)
+                print(f"cartesian? {cart}")
+                body = claim.body
+                lhs = extract_lhs(body)
+                rhs = extract_rhs(body)
+                list_lhs = prelude_list_to_metalist(lhs)
+                list_rhs = prelude_list_to_metalist(rhs)
+                print(f"lhs: {list_lhs}")
+                print(f"rhs: {list_rhs}")
+                list_lhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_lhs]
+                list_rhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_rhs]
+                print(f"lhsi: {list_lhs0}")
+                print(f"rhsi: {list_rhs0}")
+                list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs0]
+                list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs0]
+                
+                print(f"lhs: {list_lhs_kore}")
+                print(f"rhs: {list_rhs_kore}")
+            return 0
     return 0
 
 def main_main() -> None:

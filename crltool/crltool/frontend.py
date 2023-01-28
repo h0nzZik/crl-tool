@@ -21,7 +21,8 @@ def get_kprove_generated_json(rs: ReachabilitySystem, specification: Path) -> Di
             '--definition',
             str(rs.definition_dir),
             '--emit-json-spec',
-            f.name
+            f.name,
+            str(specification),
 
         ]
         rv = run_process(command)
