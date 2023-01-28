@@ -63,6 +63,10 @@ from .kore_utils import (
 
 from .ReachabilitySystem import ReachabilitySystem
 
+from .frontend import (
+    get_kprove_generated_json,
+)
+
 from .verify import (
     #UnsolvableGoal,
     VerifyGoal,
