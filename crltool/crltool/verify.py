@@ -1078,7 +1078,7 @@ class Verifier:
             #_LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}") # most often should be empty
         # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
         flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
-            (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
+            (antecedentC, self.check_eclp_impl_valid(goal.antecedent, antecedentC))
             for antecedentC in goal.flushed_cutpoints.values()
         ]
         # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
@@ -1094,7 +1094,7 @@ class Verifier:
 
         # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
         user_cutpoints_with_subst : List[Tuple[str, EclpImpliesResult]] = [
-            (antecedentCname, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.user_cutpoints[antecedentCname]))
+            (antecedentCname, self.check_eclp_impl_valid(goal.antecedent, self.user_cutpoints[antecedentCname]))
             for antecedentCname in self.user_cutpoints
             if not antecedentCname in goal.user_cutpoint_blacklist
         ]
