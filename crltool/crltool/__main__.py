@@ -300,19 +300,19 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
     list_rhs = prelude_list_to_metalist(rhs)
     if (len(list_lhs) != len(list_rhs)):
         raise ValueError(f"CRL antecedent and consequent need to have the same arity: {len(list_lhs)} != {len(list_rhs)}")
-    print(f"lhs: {list_lhs}")
-    print(f"rhs: {list_rhs}")
+    #print(f"lhs: {list_lhs}")
+    #print(f"rhs: {list_rhs}")
     #list_lhs = [rs.kast_definition.instantiate_cell_vars(x) for x in list_lhs]
     #list_rhs = [rs.kast_definition.instantiate_cell_vars(x) for x in list_rhs]
     #print(f"lhsi: {list_lhs}")
     #print(f"rhsi: {list_rhs}")
     list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs]
     list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs]
-    print(f"lhs: {list_lhs_kore}")
-    print(f"rhs: {list_rhs_kore}")
+    #print(f"lhs: {list_lhs_kore}")
+    #print(f"rhs: {list_rhs_kore}")
     evars = list(chain.from_iterable([free_evars_of_pattern(p) for p in list_rhs_kore]))
     question_mark_variables = [ev for ev in evars if ev.name.startswith("Var'Ques'")]
-    print(f"?vars: {question_mark_variables}")
+    #print(f"?vars: {question_mark_variables}")
 
     requires_constraint = rs.kprint.kast_to_kore(bool_to_ml_pred(claim.requires))
     ensures_constraint = rs.kprint.kast_to_kore(bool_to_ml_pred(claim.ensures))
@@ -361,7 +361,7 @@ def load_frontend_spec(rs: ReachabilitySystem, args):
         if mod.name == ml.main_module:
             spec = extract_crl_spec_from_flat_module(rs, mod)
             spec_str = json.dumps(spec.dict, sort_keys=True, indent=True)
-            if ('output_file' in args) or (args['output_file'] is None):
+            if ('output_file' not in args) or (args['output_file'] is None):
                 print(spec_str)
             else:
                 with open(args['output_file'], 'w') as fw:
