@@ -357,10 +357,10 @@ def load_frontend_spec(rs: ReachabilitySystem, args):
 
 def prove(rs: ReachabilitySystem, args) -> int:
     if args['from_json']:
-        spec : Specification = get_spec_from_file(rs, filename=Path(args['specification']))
-    else:
         with open(args['specification'], 'r') as spec_f:
-            spec = Specification.from_dict(json.loads(spec_f.read()))
+            spec : Specification = Specification.from_dict(json.loads(spec_f.read()))
+    else:
+        spec  = get_spec_from_file(rs, filename=Path(args['specification']))
 
     settings = VerifySettings(
         check_eclp_impl_valid=eclp_impl_valid_trough_lists,
