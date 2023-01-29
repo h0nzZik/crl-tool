@@ -43,6 +43,9 @@ from pyk.kore.syntax import (
     Top,
     Not,
     Implies,
+    App,
+    EVar,
+    SortApp,
 )
 
 from pyk.kore.parser import (
@@ -241,6 +244,25 @@ def prelude_list_to_metalist(term: KInner) -> List[KInner]:
         case _:
             raise ValueError(f"Not a list: {term}")
 
+def add_generated_stuff(phi : Pattern, counter_variable_name : str) -> Pattern:
+    return App(
+        symbol="Lbl'-LT-'generatedTop'-GT-'",
+        sorts=(),
+        args=(
+            phi,
+            App(
+                symbol="Lbl'-LT-'generatedCounter'-GT-'",
+                sorts=(),
+                args=(
+                    EVar(
+                        name=counter_variable_name,
+                        sort=SortApp('SortInt', ())
+                    ),
+                )
+            )
+        ),
+    )
+
 def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
     body = claim.body
     lhs = extract_lhs(body)
@@ -257,10 +279,20 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
     #print(f"rhsi: {list_rhs}")
     list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs]
     list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs]
+    evars = list(chain.from_iterable([free_evars_of_pattern(p) for p in list_rhs_kore]))
+    
+    lhs_generated_counters = [f"VARGENERATEDCOUNTER{i}" for i in range(len(list_lhs_kore))]
+    rhs_generated_counters = [f"VARGENERATEDCOUNTERPRIME{i}" for i in range(len(list_rhs_kore))]
+    list_lhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_lhs_kore,lhs_generated_counters)]
+    list_rhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_rhs_kore,rhs_generated_counters)]
     #print(f"lhs: {list_lhs_kore}")
     #print(f"rhs: {list_rhs_kore}")
-    evars = list(chain.from_iterable([free_evars_of_pattern(p) for p in list_rhs_kore]))
-    question_mark_variables = [ev for ev in evars if ev.name.startswith("Var'Ques'")]
+
+    question_mark_variables = [
+        ev for ev in evars if ev.name.startswith("Var'Ques'")
+    ] + [
+        EVar(name=name, sort=SortApp('SortInt', ()))  for name in rhs_generated_counters
+    ]
     #print(f"?vars: {question_mark_variables}")
 
     requires_constraint = rs.kprint.kast_to_kore(bool_to_ml_pred(claim.requires))
@@ -272,7 +304,7 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
             vars=[],
             clp=CLP(
                 lp=LP(
-                    patterns=list_lhs_kore,
+                    patterns=list_lhs_kore_top,
                 ),
                 constraint=requires_constraint
             ),
@@ -281,13 +313,13 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
             vars=question_mark_variables,
             clp=CLP(
                 lp=LP(
-                    patterns=list_rhs_kore,
+                    patterns=list_rhs_kore_top,
                 ),
                 constraint=ensures_constraint,
             )
         )
     )
-                
+
 
 def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) -> Specification:
     claims: Dict[str,Claim] = dict()
@@ -359,6 +391,7 @@ def main_main() -> None:
     logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
     logging.getLogger('pyk.kore.rpc').disabled = True
     logging.getLogger('pyk.ktool.kprint').disabled = True
+    logging.getLogger('pyk.kast.inner').disabled = True # TODO check those debugging messages
     if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
         print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")
         return
