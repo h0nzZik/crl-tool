@@ -489,8 +489,8 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
     antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
     consequent_list : Pattern = clp_to_list(rs, consequent.clp)
     ex_consequent_list : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), consequent.vars, consequent_list)
-    #print(f'from {antecedent_list}')
-    #print(f'to {ex_consequent_list}')
+    print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
+    print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
 
     try:
         result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
@@ -1355,6 +1355,8 @@ def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
 def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, claim: Claim, claim_name : str) -> Verifier:
     antecedent = claim.antecedent
     consequent = claim.consequent
+    _LOGGER.debug(f"Going to try to prove the consequent with variables: {consequent.vars}")
+    _LOGGER.debug(f"{[rs.kprint.kore_to_pretty(phi) for phi in consequent.clp.lp.patterns]}")
     user_cutpoints_2 = user_cutpoints.copy()
     if settings.goal_as_cutpoint:
         new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
