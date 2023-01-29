@@ -489,8 +489,8 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
     antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
     consequent_list : Pattern = clp_to_list(rs, consequent.clp)
     ex_consequent_list : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), consequent.vars, consequent_list)
-    #print(f'from {antecedent_list}')
-    #print(f'to {ex_consequent_list}')
+    print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
+    print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
 
     try:
         result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
@@ -564,7 +564,6 @@ class VerifySettings:
     check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
     goal_as_cutpoint : bool
     max_depth : int
-    target : Optional[List[int]]
 
 @dataclass
 class VerifyGoal:
@@ -912,12 +911,6 @@ class Verifier:
         self.last_goal_id = self.last_goal_id + 1
         return self.last_goal_id
 
-    def get_range(self):
-        if self.settings.target is None:
-            return vecrange(self.arity, self.settings.max_depth)
-        else:
-            return targeted_range(self.settings.target)
-
 
     def verify(self) -> VerifyResult:
         while(True):
@@ -1063,6 +1056,7 @@ class Verifier:
 
 
     def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
+        _LOGGER.debug("Checking a large implication")
         old = time.perf_counter()
         r = self.settings.check_eclp_impl_valid(self.rs, antecedent, consequent)
         new = time.perf_counter()
@@ -1084,7 +1078,7 @@ class Verifier:
             #_LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}") # most often should be empty
         # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
         flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
-            (antecedentC, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, antecedentC))
+            (antecedentC, self.check_eclp_impl_valid(goal.antecedent, antecedentC))
             for antecedentC in goal.flushed_cutpoints.values()
         ]
         # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
@@ -1100,7 +1094,7 @@ class Verifier:
 
         # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
         user_cutpoints_with_subst : List[Tuple[str, EclpImpliesResult]] = [
-            (antecedentCname, self.settings.check_eclp_impl_valid(self.rs, goal.antecedent, self.user_cutpoints[antecedentCname]))
+            (antecedentCname, self.check_eclp_impl_valid(goal.antecedent, self.user_cutpoints[antecedentCname]))
             for antecedentCname in self.user_cutpoints
             if not antecedentCname in goal.user_cutpoint_blacklist
         ]
@@ -1307,6 +1301,7 @@ class Verifier:
                 
                 if step_result.reason == StopReason.STUCK:
                     _LOGGER.info(f"Stuck in depth {ce.depth}")
+                    _LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
                     #ce.stuck = True
                     #final_elements.append(ce)
                     continue
@@ -1357,7 +1352,11 @@ def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
 #   each one is an ECLP. Note that they have not been proved to be valid;
 #   it is our task to verify them if we need to use them.
-def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> Verifier:
+def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, claim: Claim, claim_name : str) -> Verifier:
+    antecedent = claim.antecedent
+    consequent = claim.consequent
+    _LOGGER.debug(f"Going to try to prove the consequent with variables: {consequent.vars}")
+    _LOGGER.debug(f"{[rs.kprint.kore_to_pretty(phi) for phi in consequent.clp.lp.patterns]}")
     user_cutpoints_2 = user_cutpoints.copy()
     if settings.goal_as_cutpoint:
         new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
@@ -1375,6 +1374,6 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
     )
     return verifier
 
-def verify(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
-    verifier = prepare_verifier(settings, user_cutpoints, rs, antecedent, consequent)
+def verify(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, claim: Claim, claim_name : str) -> VerifyResult:
+    verifier = prepare_verifier(settings, user_cutpoints, rs, claim, claim_name)
     return verifier.verify()

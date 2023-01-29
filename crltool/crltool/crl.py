@@ -82,3 +82,42 @@ class Claim:
     @property
     def dict(self) -> Dict[str, Any]:
         return {'antecedent': self.antecedent.dict, 'consequent': self.consequent.dict}
+
+
+@final
+@dataclass
+class RLCircularity:
+    antecedent: Pattern
+    consequent: Pattern
+
+    @staticmethod
+    def from_dict(dct: Mapping[str, Any]) -> 'RLCircularity':
+        return RLCircularity(Pattern.from_dict(dct['antecedent']), Pattern.from_dict(dct['consequent']))
+    
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {'antecedent': self.antecedent.dict, 'consequent': self.consequent.dict}
+
+
+@final
+@dataclass
+class Specification:
+    claims: Dict[str, Claim]
+    cutpoints: Dict[str, ECLP] # TODO I am not sure if the existential variables are needed
+    rl_circularities : Dict[str, RLCircularity]
+
+    @staticmethod
+    def from_dict(dct: Mapping[str, Any]) -> 'Specification':
+        return Specification(
+            claims={k: Claim.from_dict(v) for k,v in dct['claims'].items()},
+            cutpoints={k: ECLP.from_dict(v) for k,v in dct['cutpoints'].items()},
+            rl_circularities={k : RLCircularity.from_dict(v) for k,v in dct['rl_circularities'].items()},
+        )
+    
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {
+            'claims': {k : v.dict for k,v in self.claims.items()},
+            'cutpoints': {k : v.dict for k,v in self.cutpoints.items()},
+            'rl_circularities': {k : v.dict for k,v in self.rl_circularities.items()}
+        }

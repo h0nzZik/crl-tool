@@ -9,6 +9,10 @@ from typing import (
     IO,
 )
 
+from pyk.kast.outer import (
+    KDefinition,
+)
+
 from pyk.ktool.kprint import (
     KPrint
 )
@@ -74,12 +78,14 @@ class ReachabilitySystem:
     definition: Definition
     main_module_name: str
     kprint : KPrint
+    definition_dir : Path
 
     def __init__(self,
         definition_dir: Path,
         kore_rpc_args: Iterable[str] = (),
         connect_to_port : Optional[str] = None
         ):
+        self.definition_dir = definition_dir
         with open(definition_dir / 'mainModule.txt', 'r') as mm:
             self.main_module_name = mm.read()
         with open(definition_dir / 'definition.kore', 'r') as dc:
@@ -109,3 +115,7 @@ class ReachabilitySystem:
     @cached_property
     def top_sort(self) -> Sort:
         return get_symbol_sort(self.definition, self.main_module_name, get_top_cell_initializer(self.definition))
+    
+    @cached_property
+    def kast_definition(self) -> KDefinition:
+        return self.kprint.definition
