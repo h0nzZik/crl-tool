@@ -24,6 +24,7 @@ module IMP-SYNTAX
                    Block "else" Block         [seqstrict(1)]
                  | "while" "(" BExp ")" Block
                  > Stmt Stmt                  [left]
+                 | "halt" "(" ")"
   syntax Pgm ::= "int" Ids ";" Stmt
   syntax Ids ::= List{Id,","}
 endmodule

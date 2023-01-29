@@ -1056,6 +1056,7 @@ class Verifier:
 
 
     def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
+        _LOGGER.debug("Checking a large implication")
         old = time.perf_counter()
         r = self.settings.check_eclp_impl_valid(self.rs, antecedent, consequent)
         new = time.perf_counter()
@@ -1300,6 +1301,7 @@ class Verifier:
                 
                 if step_result.reason == StopReason.STUCK:
                     _LOGGER.info(f"Stuck in depth {ce.depth}")
+                    _LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
                     #ce.stuck = True
                     #final_elements.append(ce)
                     continue
