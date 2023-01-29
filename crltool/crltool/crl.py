@@ -82,3 +82,42 @@ class Claim:
     @property
     def dict(self) -> Dict[str, Any]:
         return {'antecedent': self.antecedent.dict, 'consequent': self.consequent.dict}
+
+
+@final
+@dataclass
+class RLCircularity:
+    antecedent: Pattern
+    consequent: Pattern
+
+    @staticmethod
+    def from_dict(dct: Mapping[str, Any]) -> 'RLCircularity':
+        return RLCircularity(Pattern.from_dict(dct['antecedent']), Pattern.from_dict(dct['consequent']))
+    
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {'antecedent': self.antecedent.dict, 'consequent': self.consequent.dict}
+
+
+@final
+@dataclass
+class Specification:
+    claims: List[Claim]
+    cutpoints: List[CLP]
+    rl_circularities : List[RLCircularity]
+
+    @staticmethod
+    def from_dict(dct: Mapping[str, Any]) -> 'Specification':
+        return Specification(
+            claims=list(map(lambda c: Claim.from_dict(c), dct['claims'])),
+            cutpoints=list(map(lambda c: CLP.from_dict(c), dct['cutpoints'])),
+            rl_circularities=list(map(lambda c: RLCircularity.from_dict(c), dct['rl_circularities'])),
+        )
+    
+    @property
+    def dict(self) -> Dict[str, Any]:
+        return {
+            'claims': list(map(lambda c: c.dict, self.claims)),
+            'cutpoints': list(map(lambda c: c.dict, self.cutpoints)),
+            'rl_circularities': list(map(lambda c: c.dict, self.rl_circularities))
+        }

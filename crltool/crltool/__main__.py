@@ -8,6 +8,10 @@ import cProfile
 
 from pathlib import Path
 
+from itertools import (
+    chain
+)
+
 from typing import (
     Final,
     Optional,
@@ -17,6 +21,7 @@ from typing import (
 
 from pyk.kast.outer import (
     KFlatModuleList,
+    KFlatModule,
     read_kast_definition,
     KClaim,
     KApply,
@@ -55,6 +60,8 @@ from .crl import (
     CLP,
     ECLP,
     Claim,
+    Specification,
+    RLCircularity,
 )
 
 from .kore_utils import (
@@ -77,6 +84,7 @@ from .verify import (
     VerifyResult,
     VerifyEntry,
     VerifyQuestion,
+    free_evars_of_pattern, # TODO this should be moved somewhere else
     verify,
     prepare_verifier,
 )
@@ -269,7 +277,8 @@ def prove(rs: ReachabilitySystem, args) -> int:
     return 0
 
 def claim_is_cartesian(claim: KClaim) -> bool:
-    return False # TODO implement
+    #print(claim.att.atts)
+    return ('cartesian' in claim.att.atts)
 
 def prelude_list_to_metalist(term: KInner) -> List[KInner]:
     match term:
@@ -281,6 +290,41 @@ def prelude_list_to_metalist(term: KInner) -> List[KInner]:
         case _:
             raise ValueError(f"Not a list: {term}")
 
+def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
+    body = claim.body
+    lhs = extract_lhs(body)
+    rhs = extract_rhs(body)
+    list_lhs = prelude_list_to_metalist(lhs)
+    list_rhs = prelude_list_to_metalist(rhs)
+    if (len(list_lhs) != len(list_rhs)):
+        raise ValueError(f"CRL antecedent and consequent need to have the same arity: {len(list_lhs)} != {len(list_rhs)}")
+    print(f"lhs: {list_lhs}")
+    print(f"rhs: {list_rhs}")
+    #list_lhs = [rs.kast_definition.instantiate_cell_vars(x) for x in list_lhs]
+    #list_rhs = [rs.kast_definition.instantiate_cell_vars(x) for x in list_rhs]
+    #print(f"lhsi: {list_lhs}")
+    #print(f"rhsi: {list_rhs}")
+    list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs]
+    list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs]
+    print(f"lhs: {list_lhs_kore}")
+    print(f"rhs: {list_rhs_kore}")
+    evars = chain.from_iterable([free_evars_of_pattern(p) for p in list_rhs_kore])
+    print(f"evars: {evars}")
+    raise NotImplementedError()
+                
+
+def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) -> Specification:
+    claims: List[Claim] = []
+    cutpoints: List[CLP] = []
+    rl_circularities : List[RLCircularity] = []
+    for claim in mod.claims:
+        cart : bool = claim_is_cartesian(claim)
+        if cart:
+            claims.append(extract_crl_claim(rs, claim))
+        else:
+            _LOGGER.warning("Non-cartesian claims are not supported yet")
+        # TODO extract cutpoints and circularities...
+    return Specification(claims=claims,cutpoints=cutpoints,rl_circularities=rl_circularities)
 
 def load_frontend_spec(rs: ReachabilitySystem, args):
     jsspec = get_kprove_generated_json(rs=rs, specification=args['specification'])
@@ -288,25 +332,8 @@ def load_frontend_spec(rs: ReachabilitySystem, args):
     #print(ml)
     for mod in ml.modules:
         if mod.name == ml.main_module:
-            for claim in mod.claims:
-                cart : bool = claim_is_cartesian(claim)
-                print(f"cartesian? {cart}")
-                body = claim.body
-                lhs = extract_lhs(body)
-                rhs = extract_rhs(body)
-                list_lhs = prelude_list_to_metalist(lhs)
-                list_rhs = prelude_list_to_metalist(rhs)
-                print(f"lhs: {list_lhs}")
-                print(f"rhs: {list_rhs}")
-                list_lhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_lhs]
-                list_rhs0 = [rs.kast_definition.instantiate_cell_vars(x) for x in list_rhs]
-                print(f"lhsi: {list_lhs0}")
-                print(f"rhsi: {list_rhs0}")
-                list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs0]
-                list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs0]
+
                 
-                print(f"lhs: {list_lhs_kore}")
-                print(f"rhs: {list_rhs_kore}")
             return 0
     return 0
 
