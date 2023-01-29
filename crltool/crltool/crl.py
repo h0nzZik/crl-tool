@@ -103,14 +103,14 @@ class RLCircularity:
 @dataclass
 class Specification:
     claims: Dict[str, Claim]
-    cutpoints: Dict[str, CLP]
+    cutpoints: Dict[str, ECLP] # TODO I am not sure if the existential variables are needed
     rl_circularities : Dict[str, RLCircularity]
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'Specification':
         return Specification(
             claims={k: Claim.from_dict(v) for k,v in dct['claims'].items()},
-            cutpoints={k: CLP.from_dict(v) for k,v in dct['cutpoints'].items()},
+            cutpoints={k: ECLP.from_dict(v) for k,v in dct['cutpoints'].items()},
             rl_circularities={k : RLCircularity.from_dict(v) for k,v in dct['rl_circularities'].items()},
         )
     

@@ -564,7 +564,6 @@ class VerifySettings:
     check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
     goal_as_cutpoint : bool
     max_depth : int
-    target : Optional[List[int]]
 
 @dataclass
 class VerifyGoal:
@@ -911,12 +910,6 @@ class Verifier:
     def fresh_goal_id(self) -> int:
         self.last_goal_id = self.last_goal_id + 1
         return self.last_goal_id
-
-    def get_range(self):
-        if self.settings.target is None:
-            return vecrange(self.arity, self.settings.max_depth)
-        else:
-            return targeted_range(self.settings.target)
 
 
     def verify(self) -> VerifyResult:
@@ -1357,7 +1350,9 @@ def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
 #   each one is an ECLP. Note that they have not been proved to be valid;
 #   it is our task to verify them if we need to use them.
-def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> Verifier:
+def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, claim: Claim, claim_name : str) -> Verifier:
+    antecedent = claim.antecedent
+    consequent = claim.consequent
     user_cutpoints_2 = user_cutpoints.copy()
     if settings.goal_as_cutpoint:
         new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
@@ -1375,6 +1370,6 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
     )
     return verifier
 
-def verify(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, antecedent : ECLP, consequent) -> VerifyResult:
-    verifier = prepare_verifier(settings, user_cutpoints, rs, antecedent, consequent)
+def verify(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, claim: Claim, claim_name : str) -> VerifyResult:
+    verifier = prepare_verifier(settings, user_cutpoints, rs, claim, claim_name)
     return verifier.verify()

@@ -113,9 +113,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
     subparser_prove.add_argument('--specification', required=True)
     subparser_prove.add_argument('--depth', type=int, default=10)
-    subparser_prove.add_argument('--no-print', action='store_true')
-    subparser_prove.add_argument('--target', nargs='+', default=None)
-    subparser_prove.add_argument('--dump-on-failure', type=str, default=None)
+    subparser_prove.add_argument('--from-json', action='store_true', default=False)
 
     subparser_load_frontend_spec = subparsers.add_parser('load-frontend-spec', help='Load a frontend-generated specification')
     subparser_load_frontend_spec.add_argument('--specification', required=True)
@@ -229,57 +227,6 @@ def view_dump(rs: ReachabilitySystem, args) -> int:
         
     return 0
 
-def prove(rs: ReachabilitySystem, args) -> int:
-    with open(args['specification'], 'r') as spec_f:
-        claim : Claim = Claim.from_dict(json.loads(spec_f.read()))
-        tgt : Optional[List[int]] = None
-        if args['target'] is not None:
-            tgt = list(map(lambda s: int(s), args['target']))
-        settings = VerifySettings(
-            check_eclp_impl_valid=eclp_impl_valid_trough_lists,
-            max_depth=int(args['depth']),
-            goal_as_cutpoint=True,
-            target=tgt
-        )
-        #_LOGGER.info("Going to call `verify`")
-        verifier = prepare_verifier(
-            rs=rs, 
-            settings=settings,
-            user_cutpoints=dict(),
-            antecedent=claim.antecedent, 
-            consequent=claim.consequent,
-        )
-        result : VerifyResult = verifier.verify()
-
-        print(f'proved: {result.proved}')
-
-        pprint.pprint(verifier.ps.dict)
-        pprint.pprint(verifier.sscache)
-
-        if (not result.proved) and (args['dump_on_failure'] is not None):
-            with open(args['dump_on_failure'], 'w') as fw:
-                print("Dumping is not supported right now")
-                #fw.write(verifier.dump())
-
-        print(f'Have {len(result.final_states)} remaining questions:')
-        if (args['no_print']):
-            print("(omitted).")
-            return 0
-        for s,i in zip(result.final_states, range(len(result.final_states))):
-            print(f'Proof state {i}: ')
-            for g0 in s.goals:
-                if not isinstance(g0, VerifyGoal):
-                    print('Unsolvable')
-                    continue
-                g : VerifyGoal = g0
-                print(f'Goal ID {g.goal_id}')
-                patterns = list(map(lambda p: (rs.kprint.kore_to_pretty(p)), g.antecedent.clp.lp.patterns))
-                pprint.pprint(patterns)
-                print('Constraint')
-                pprint.pprint(rs.kprint.kore_to_pretty(g.antecedent.clp.constraint))
-
-    return 0
-
 def claim_is_cartesian(claim: KClaim) -> bool:
     #print(claim.att.atts)
     return ('cartesian' in claim.att.atts)
@@ -344,7 +291,7 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
 
 def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) -> Specification:
     claims: Dict[str,Claim] = dict()
-    cutpoints: Dict[str,CLP] = dict()
+    cutpoints: Dict[str,ECLP] = dict()
     rl_circularities : Dict[str,RLCircularity] = dict()
     for claim in mod.claims:
         cart : bool = claim_is_cartesian(claim)
@@ -356,20 +303,53 @@ def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) 
         # TODO extract cutpoints and circularities...
     return Specification(claims=claims,cutpoints=cutpoints,rl_circularities=rl_circularities)
 
-def load_frontend_spec(rs: ReachabilitySystem, args):
-    jsspec = get_kprove_generated_json(rs=rs, specification=args['specification'])
+def get_spec_from_file(rs: ReachabilitySystem, filename: Path) -> Specification:
+    jsspec = get_kprove_generated_json(rs=rs, specification=filename)
     ml = KFlatModuleList.from_dict(jsspec['term'])
     #print(ml)
     for mod in ml.modules:
         if mod.name == ml.main_module:
             spec = extract_crl_spec_from_flat_module(rs, mod)
-            spec_str = json.dumps(spec.dict, sort_keys=True, indent=True)
-            if ('output_file' not in args) or (args['output_file'] is None):
-                print(spec_str)
-            else:
-                with open(args['output_file'], 'w') as fw:
-                    fw.write(spec_str)
-            return 0
+            return spec
+    raise ValueError("No main module found")
+
+def load_frontend_spec(rs: ReachabilitySystem, args):
+    spec : Specification = get_spec_from_file(rs=rs, filename=Path(args['specification']))
+    spec_str = json.dumps(spec.dict, sort_keys=True, indent=True)
+    if ('output_file' not in args) or (args['output_file'] is None):
+        print(spec_str)
+    else:
+        with open(args['output_file'], 'w') as fw:
+            fw.write(spec_str)
+    return 0
+
+def prove(rs: ReachabilitySystem, args) -> int:
+    if args['from_json']:
+        spec : Specification = get_spec_from_file(rs, filename=Path(args['specification']))
+    else:
+        with open(args['specification'], 'r') as spec_f:
+            spec = Specification.from_dict(json.loads(spec_f.read()))
+
+    settings = VerifySettings(
+        check_eclp_impl_valid=eclp_impl_valid_trough_lists,
+        max_depth=int(args['depth']),
+        goal_as_cutpoint=True,
+    )
+    for claim_name,claim in spec.claims.items():
+        _LOGGER.info(f"Going to verify claim {claim_name}")
+        
+        verifier = prepare_verifier(
+            rs=rs, 
+            settings=settings,
+            user_cutpoints=spec.cutpoints,
+            claim=claim,
+            claim_name=claim_name
+        )
+        result : VerifyResult = verifier.verify()
+        print(f'proved: {result.proved}')
+        pprint.pprint(verifier.ps.dict)
+        pprint.pprint(verifier.sscache)
+
     return 0
 
 def main_main() -> None:
