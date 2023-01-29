@@ -2,7 +2,7 @@
   description = "An implementation of Cartesian Reachability Logic via K";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    pyk.url = "github:runtimeverification/pyk/v0.1.94";
+    pyk.url = "github:runtimeverification/pyk/v0.1.105";
     #pyk.url = "/home/jan/projects/rv/pyk";
     #k-framework.url = "github:runtimeverification/k";
     k-framework.url = "github:h0nzZik/k/dont-prove";

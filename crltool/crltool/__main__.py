@@ -13,6 +13,7 @@ from itertools import (
 )
 
 from typing import (
+    Dict,
     Final,
     Optional,
     List,
@@ -26,6 +27,7 @@ from pyk.kast.outer import (
     KClaim,
     KApply,
     KLabel,
+    KSentence,
 )
 
 from pyk.kast.manip import (
@@ -341,13 +343,14 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
                 
 
 def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) -> Specification:
-    claims: List[Claim] = []
-    cutpoints: List[CLP] = []
-    rl_circularities : List[RLCircularity] = []
+    claims: Dict[str,Claim] = dict()
+    cutpoints: Dict[str,CLP] = dict()
+    rl_circularities : Dict[str,RLCircularity] = dict()
     for claim in mod.claims:
         cart : bool = claim_is_cartesian(claim)
+        sen : KSentence = claim
         if cart:
-            claims.append(extract_crl_claim(rs, claim))
+            claims[sen.label] = extract_crl_claim(rs, claim)
         else:
             _LOGGER.warning("Non-cartesian claims are not supported yet")
         # TODO extract cutpoints and circularities...

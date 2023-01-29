@@ -102,22 +102,22 @@ class RLCircularity:
 @final
 @dataclass
 class Specification:
-    claims: List[Claim]
-    cutpoints: List[CLP]
-    rl_circularities : List[RLCircularity]
+    claims: Dict[str, Claim]
+    cutpoints: Dict[str, CLP]
+    rl_circularities : Dict[str, RLCircularity]
 
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'Specification':
         return Specification(
-            claims=list(map(lambda c: Claim.from_dict(c), dct['claims'])),
-            cutpoints=list(map(lambda c: CLP.from_dict(c), dct['cutpoints'])),
-            rl_circularities=list(map(lambda c: RLCircularity.from_dict(c), dct['rl_circularities'])),
+            claims={k: Claim.from_dict(v) for k,v in dct['claims'].items()},
+            cutpoints={k: CLP.from_dict(v) for k,v in dct['cutpoints'].items()},
+            rl_circularities={k : RLCircularity.from_dict(v) for k,v in dct['rl_circularities'].items()},
         )
     
     @property
     def dict(self) -> Dict[str, Any]:
         return {
-            'claims': list(map(lambda c: c.dict, self.claims)),
-            'cutpoints': list(map(lambda c: c.dict, self.cutpoints)),
-            'rl_circularities': list(map(lambda c: c.dict, self.rl_circularities))
+            'claims': {k : v.dict for k,v in self.claims.items()},
+            'cutpoints': {k : v.dict for k,v in self.cutpoints.items()},
+            'rl_circularities': {k : v.dict for k,v in self.rl_circularities.items()}
         }
