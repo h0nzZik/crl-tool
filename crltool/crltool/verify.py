@@ -1,6 +1,7 @@
 import logging
 import json
 import time
+import pprint
 
 from abc import (
     ABC,
@@ -489,8 +490,8 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
     antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
     consequent_list : Pattern = clp_to_list(rs, consequent.clp)
     ex_consequent_list : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), consequent.vars, consequent_list)
-    print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
-    print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
+    #print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
+    #print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
 
     try:
         result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
@@ -746,8 +747,11 @@ class PreGoalConjunction:
     pregoals: List[PreGoal]
 
 # Combines execution tree cuts from different executions
-def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
+def combine_exe_cuts(rs: ReachabilitySystem, ecuts: List[ExeCut]) -> List[PreGoal]:
+    #_LOGGER.debug(f"combine_exe_cuts: {len(ecuts)}")
     ecutelements : List[List[CutElement]] = [ec.ces for ec in ecuts]
+    #pprint.pprint([ [rs.kprint.kore_to_pretty(x.phi) for x in ec] for ec in ecutelements])
+
     combined : List[List[CutElement]] = [list(e) for e in product(*ecutelements)]
     pregoals : List[PreGoal] = [
         PreGoal(
@@ -774,24 +778,25 @@ class ExplorationStrategy(ABC):
     # However, every yielded PreGoalConjunction has to be exhaustive.
     # Such can be generated from an ExeCut for each direction by `combine_exe_cuts`.
     @abstractmethod
-    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
+    def combine(self, rs: ReachabilitySystem, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
         ...
 
 # This exploration_strategy assumes that all the streams are finite
 class StupidExplorationStrategy(ExplorationStrategy):
-    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
+    def combine(self, rs: ReachabilitySystem, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
         # arity == len(streams)
-        _LOGGER.debug(f"Strategy: have {len(streams)} streams")
+        #_LOGGER.debug(f"Strategy: have {len(streams)} streams")
         lists : List[List[ExeCut]] = [ list(s) for s in streams ]
-        _LOGGER.debug(f"Strategy: the streams have lenghts {[len(l) for l in lists]}")
+        #_LOGGER.debug(f"Strategy: the streams have lenghts {[len(l) for l in lists]}")
+        #pprint.pprint([ [[rs.kprint.kore_to_pretty(x.phi) for x in ec.ces] for ec in lec] for lec in lists])
         # arity == len(lists)
         combinations : List[List[ExeCut]] = [list(e) for e in product(*lists)]
         # for any c in combinations, arity == len(c)
         pgcs : List[PreGoalConjunction] = [
-            PreGoalConjunction(pregoals=combine_exe_cuts(combination))
+            PreGoalConjunction(pregoals=combine_exe_cuts(rs, combination))
             for combination in combinations
         ]
-        _LOGGER.debug(f"exploration strategy: have {len(pgcs)} conjunctions")
+        #_LOGGER.debug(f"exploration strategy: have {len(pgcs)} conjunctions")
         return pgcs
 
 def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoalConjunction]) -> Iterable[PreGoalConjunction]:
@@ -977,7 +982,7 @@ class Verifier:
                 for j in range(0, self.arity)
             ]
             # Each of the elements of 'combined' is a way of making 'goal' hold.
-            combined : Iterable[PreGoalConjunction] = self.exploration_strategy.combine(cuts_in_j)
+            combined : Iterable[PreGoalConjunction] = self.exploration_strategy.combine(self.rs, cuts_in_j)
             combined_filtered : Iterable[PreGoalConjunction] = filter_out_pregoals_with_no_progress(combined)
             # Each of the elements of 'new_gcjs' is a way of making 'goal' hold.
             new_gcjs : Iterable[GoalConjunction] = map(
@@ -1174,7 +1179,11 @@ class Verifier:
 
     def symbolic_step(self, pattern : Pattern) -> ExecuteResult:
         old = time.perf_counter()
-        step_result = self.rs.kcs.client.execute(pattern=pattern, max_depth=1)
+        step_result = self.rs.kcs.client.execute(
+            pattern=pattern,
+            max_depth=1,
+            terminal_rules=["IMP.halt"],
+        )
         new = time.perf_counter()
         self.ps.stepping.add(new - old)
         if pattern.__hash__() in self.sscache:
@@ -1220,12 +1229,13 @@ class Verifier:
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
         # This is the initial cut
-        elements_to_explore_next : ExeCut = ExeCut(ces=[
+        initial_cut : ExeCut = ExeCut(ces=[
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
         ])
-        yield elements_to_explore_next
+        yield initial_cut
+        elements_to_explore_next : ExeCut = ExeCut(ces=initial_cut.ces.copy())
         while len(elements_to_explore_next.ces) > 0:
-            elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces
+            elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces.copy()
             elements_to_explore_next.ces = []
             curr_cut = ExeCut(ces=[])
             while len(elements_to_explore_now) > 0:
@@ -1299,8 +1309,8 @@ class Verifier:
                         elements_to_explore_next.ces.append(new_ce)
                     continue
                 
-                if step_result.reason == StopReason.STUCK:
-                    _LOGGER.info(f"Stuck in depth {ce.depth}")
+                if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
+                    _LOGGER.info(f"Stuck (or terminal rule) in depth {ce.depth}")
                     _LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
                     #ce.stuck = True
                     #final_elements.append(ce)

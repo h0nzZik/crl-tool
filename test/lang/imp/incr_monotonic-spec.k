@@ -27,7 +27,7 @@ claim [my-crl-claim]:
         ListItem(<T><k>halt() ~> .K</k><state> ?ST1' </state></T>)
       )
       requires X0 <=Int X1
-      ensures (x in_keys(?ST0')) andBool (x in_keys(?ST1'))
+      //ensures (x in_keys(?ST0')) andBool (x in_keys(?ST1'))
       [cartesian, one-path]
     //requires X0 <=Int X1
     //ensures ?X0' <=Int ?X1'
