@@ -1220,12 +1220,14 @@ class Verifier:
         ces: List[CutElement] = []
         for ecut in ecuts:
             ces = ces + ecut.ces
-        _LOGGER.debug(f"Combining a list of cuts of lenght {len(ecuts)} into a cut of length {len(ces)}")
+        _LOGGER.debug(f"Combining a list of cuts of length {len(ecuts)} into a cut of length {len(ces)}")
         return ExeCut(ces=ces)
 
     def combine_exe_cuts_0(self, ecuts: List[Iterable[ExeCut]]) -> Iterable[ExeCut]:
+        _LOGGER.debug(f"Combining a List[Iterable[ExeCut]] from various branches, of length {len(ecuts)}")
         prod : Iterable[Tuple[ExeCut,...]] = product(*ecuts)
         return map(lambda p: self.conjunct_exe_cuts(list(p)), prod)
+        #return list(map(lambda p: self.conjunct_exe_cuts(list(p)), prod))
 
     def advance_to_limit(
         self,
@@ -1273,8 +1275,12 @@ class Verifier:
                         progress_from_initial=progress_from_initial,
                         user_cutpoint_blacklist=user_cutpoint_blacklist,
                     ))
-                combined0 = self.combine_exe_cuts_0(its)
-                return combined0
+                yield from self.combine_exe_cuts_0(its)
+                #combined0 = self.combine_exe_cuts_0(its)
+                #return combined0
+                #for c in combined0:
+                #    yield c
+                return
 
             if step_result.reason == StopReason.DEPTH_BOUND:
                 _LOGGER.info(f"Progress in depth {depth}")
