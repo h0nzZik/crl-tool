@@ -749,7 +749,6 @@ class PreGoalConjunction:
 # Combines execution tree cuts from different executions
 def combine_exe_cuts(rs: ReachabilitySystem, ecuts: List[ExeCut]) -> List[PreGoal]:
     ecutelements : List[List[CutElement]] = [ec.ces for ec in ecuts]
-
     combined : List[List[CutElement]] = [list(e) for e in product(*ecutelements)]
     pregoals : List[PreGoal] = [
         PreGoal(
@@ -828,7 +827,11 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         return None
     
     def insert_conjunctions(self, gcs: Iterable[GoalConjunction]) -> None:
-        self._stack.extend(gcs)
+        # Evaluate it so that we can debug print it
+        l = [GoalConjunction(goals=list(gc.goals), can_make_steps=gc.can_make_steps)  for gc in gcs]
+        # We can do len(list(...)) only because it actually is a list, see the line above
+        _LOGGER.info(f"Inserting goal conjunctions: {[(len(list(x.goals)), x.can_make_steps) for x in l]}")
+        self._stack.extend(l)
         return
 
 @dataclass
@@ -998,9 +1001,15 @@ class Verifier:
         disj_of_conj : Iterable[Tuple[GoalConjunction,...]] = product(*new_goals_pre_conj)
         disj_of_conj_2 : Iterable[List[GoalConjunction]] = map(lambda t: list(t), disj_of_conj)
         disj_of_conj_3 : Iterable[List[Iterable[VerifyGoal]]] = map(lambda l: list(map(lambda g: g.goals, l)), disj_of_conj_2)
-        disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(lambda l: len(l) > 0, disj_of_conj_3)
+        def filter_out_empty(l : List[Iterable[VerifyGoal]]) -> bool:
+            if len(l) == 0:
+                print("Filtering out an empty List[Iterable[VerifyGoal]]")
+                return False
+            return True
+        disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(filter_out_empty, disj_of_conj_3)
+        #disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(lambda l: len(l) > 0, disj_of_conj_3)
         # Now we just flatten the list of conjunctions.
-        disj_of_conj_flattened : Iterable[GoalConjunction] = (map( #TODO remove the list
+        disj_of_conj_flattened : Iterable[GoalConjunction] = (map(
             lambda lgc: GoalConjunction(
                 goals = chain(*lgc),
                 can_make_steps = True,
@@ -1207,6 +1216,17 @@ class Verifier:
         else:
             return instantiated_cutpoints
 
+    def conjunct_exe_cuts(self, ecuts: List[ExeCut]) -> ExeCut:
+        ces: List[CutElement] = []
+        for ecut in ecuts:
+            ces = ces + ecut.ces
+        _LOGGER.debug(f"Combining a list of cuts of lenght {len(ecuts)} into a cut of length {len(ces)}")
+        return ExeCut(ces=ces)
+
+    def combine_exe_cuts_0(self, ecuts: List[Iterable[ExeCut]]) -> Iterable[ExeCut]:
+        prod : Iterable[Tuple[ExeCut,...]] = product(*ecuts)
+        return map(lambda p: self.conjunct_exe_cuts(list(p)), prod)
+
     def advance_to_limit(
         self,
         phi: Pattern,
@@ -1215,112 +1235,90 @@ class Verifier:
         instantiated_cutpoints : Dict[str, ECLP],
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
+        progress_from_initial : bool = False,
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
-        # This is the initial cut
-        initial_cut : ExeCut = ExeCut(ces=[
-            CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
-        ])
-        yield initial_cut
-        elements_to_explore_next : ExeCut = ExeCut(ces=initial_cut.ces.copy())
-        stuck_elements : List[CutElement] = []
-        while len(elements_to_explore_next.ces) > 0:
-            elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces.copy()
-            elements_to_explore_next.ces = []
-            curr_cut = ExeCut(ces=[])
-            while len(elements_to_explore_now) > 0:
-                ce : CutElement = elements_to_explore_now.pop()
-                #assert(not ce.matches)
-                assert(not ce.stuck)
-                _LOGGER.info(f"Exploring element in depth {ce.depth}")
-                #_LOGGER.info(self.rs.kprint.kore_to_pretty(ce.phi))
 
-                if ce.depth >= self.settings.max_depth:
-                    _LOGGER.info(f"Maximal depth reached")
-                    stuck_elements.append(ce)
-                    #curr_cut.ces.append(ce)
-                    # We are NOT adding ce into `elements_to_explore_next`
-                    continue
-
-                step_result : ExecuteResult = self.symbolic_step(ce.phi)
-                if step_result.reason == StopReason.BRANCHING:
-                    assert(step_result.next_states is not None)
-                    assert(len(step_result.next_states) > 1)
-                    bs = list(map(lambda s: s.kore, step_result.next_states))
-                    _LOGGER.info(f"Branching in depth {ce.depth} with {len(bs)} successors")
-                    for b in bs:
-                        matches : bool = self.approx_implies_something(
-                            pattern_j=b,
-                            j=j,
-                            flushed_cutpoints=self.new_flushed_cutpoints(
-                                instantiated_cutpoints=instantiated_cutpoints,
-                                flushed_cutpoints=flushed_cutpoints,
-                                progress=ce.progress_from_initial, # TODO or True?
-                            ),
-                            user_cutpoint_blacklist=user_cutpoint_blacklist
-                        )
-                        new_ce1 : CutElement = CutElement(
-                            phi=b,
-                            depth=ce.depth+1,
-                            stuck=False,
-                            matches=matches,
-                            progress_from_initial=ce.progress_from_initial # TODO: or True?
-                        )
-
-                        if matches:
-                            _LOGGER.info(f"The configuration matches something; adding to current cut.")
-                            curr_cut.ces.append(new_ce1)
-                        else:
-                            elements_to_explore_next.ces.append(new_ce1)
-                    continue
-                if step_result.reason == StopReason.DEPTH_BOUND:
-                    _LOGGER.info(f"Progress in depth {ce.depth}")
-                    p : Pattern = step_result.state.kore
-                    matches1 : bool = self.approx_implies_something(
-                        pattern_j=p,
+        matches00 : bool = self.approx_implies_something(
+            pattern_j=phi,
+            j=j,
+            flushed_cutpoints=self.new_flushed_cutpoints(
+                instantiated_cutpoints=instantiated_cutpoints,
+                flushed_cutpoints=flushed_cutpoints,
+                progress=progress_from_initial,
+            ),
+            user_cutpoint_blacklist=user_cutpoint_blacklist
+        )
+        if matches00 or (depth >= self.settings.max_depth):
+             # This is the initial cut
+            yield ExeCut(ces=[
+                CutElement(phi=phi, matches=matches00,depth=depth,stuck=False,progress_from_initial=progress_from_initial)
+            ])
+        
+        while depth < self.settings.max_depth:
+            step_result : ExecuteResult = self.symbolic_step(phi)
+            if step_result.reason == StopReason.BRANCHING:
+                assert(step_result.next_states is not None)
+                assert(len(step_result.next_states) > 1)
+                bs = list(map(lambda s: s.kore, step_result.next_states))
+                _LOGGER.info(f"Branching in depth {depth} with {len(bs)} successors")
+                its : List[Iterable[ExeCut]] = []
+                for b in bs:
+                    its.append(self.advance_to_limit(
+                        phi=b,
+                        depth=depth+1,
                         j=j,
-                        flushed_cutpoints=self.new_flushed_cutpoints(
-                            instantiated_cutpoints=instantiated_cutpoints,
-                            flushed_cutpoints=flushed_cutpoints,
-                            progress=True
-                        ),
-                        user_cutpoint_blacklist=user_cutpoint_blacklist
-                    )
-                    new_ce : CutElement = CutElement(
-                        phi=p,
-                        depth=ce.depth+1,
-                        stuck=False,
-                        matches=matches1,
-                        progress_from_initial=True
-                    )
-                    if matches1:
-                        _LOGGER.info(f"The configuration matches something; adding to current cut.")
-                        curr_cut.ces.append(new_ce)
-                    else:
-                        elements_to_explore_next.ces.append(new_ce)
-                    continue
-                
-                if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
-                    _LOGGER.info(f"Stuck (or terminal rule) in depth {ce.depth}")
-                    stuck_elements.append(ce)
-                    #_LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
-                    #ce.stuck = True
-                    #final_elements.append(ce)
-                    continue
-                _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
-                raise RuntimeError()
-            assert(len(elements_to_explore_now) == 0)
-            if len(curr_cut.ces) > 0:
-                cut_to_yield : ExeCut = ExeCut(
-                    ces=(curr_cut.ces + stuck_elements)
-                )
-                #stuck_elements = []
-                _LOGGER.info(f"Yielding a cut of size {len(cut_to_yield.ces)}")
-                yield cut_to_yield
-                # We do not want to explore the stuck elements again
-                elements_to_explore_next.ces.extend(curr_cut.ces)
+                        instantiated_cutpoints=instantiated_cutpoints,
+                        flushed_cutpoints=flushed_cutpoints,
+                        progress_from_initial=progress_from_initial,
+                        user_cutpoint_blacklist=user_cutpoint_blacklist,
+                    ))
+                combined0 = self.combine_exe_cuts_0(its)
+                return combined0
 
-            continue
+            if step_result.reason == StopReason.DEPTH_BOUND:
+                _LOGGER.info(f"Progress in depth {depth}")
+                p : Pattern = step_result.state.kore
+                matches1 : bool = self.approx_implies_something(
+                    pattern_j=p,
+                    j=j,
+                    flushed_cutpoints=self.new_flushed_cutpoints(
+                        instantiated_cutpoints=instantiated_cutpoints,
+                        flushed_cutpoints=flushed_cutpoints,
+                        progress=True
+                    ),
+                    user_cutpoint_blacklist=user_cutpoint_blacklist
+                )
+                new_ce : CutElement = CutElement(
+                    phi=p,
+                    depth=depth+1,
+                    stuck=False,
+                    matches=matches1,
+                    progress_from_initial=True
+                )
+                if matches1:
+                    _LOGGER.info(f"The configuration matches something; yielding.")
+                    yield ExeCut(ces=[new_ce])
+                phi = p
+                depth = depth + 1
+                matches00 = matches1
+                progress_from_initial = True
+                continue
+                
+            if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
+                _LOGGER.info(f"Stuck (or terminal rule) in depth {depth}")
+                break
+            _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
+            raise RuntimeError()
+
+        new_ce0 : CutElement = CutElement(
+            phi=phi,
+            depth=depth,
+            stuck=True,
+            matches=matches00,
+            progress_from_initial=progress_from_initial
+        )
+        yield ExeCut(ces=[new_ce])
         return
 
 
