@@ -1148,7 +1148,7 @@ class Verifier:
         usable_user_cutpoints : List[ECLP] = [self.user_cutpoints[name] for name in self.user_cutpoints if name not in user_cutpoint_blacklist]
         fcv = list(flushed_cutpoints.values())
         what = usable_user_cutpoints + fcv + [self.consequent]
-        _LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
+        #_LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
         for eclp in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             
@@ -1223,6 +1223,7 @@ class Verifier:
         ])
         yield initial_cut
         elements_to_explore_next : ExeCut = ExeCut(ces=initial_cut.ces.copy())
+        stuck_elements : List[CutElement] = []
         while len(elements_to_explore_next.ces) > 0:
             elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces.copy()
             elements_to_explore_next.ces = []
@@ -1236,6 +1237,7 @@ class Verifier:
 
                 if ce.depth >= self.settings.max_depth:
                     _LOGGER.info(f"Maximal depth reached")
+                    stuck_elements.append(ce)
                     #curr_cut.ces.append(ce)
                     # We are NOT adding ce into `elements_to_explore_next`
                     continue
@@ -1300,6 +1302,7 @@ class Verifier:
                 
                 if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
                     _LOGGER.info(f"Stuck (or terminal rule) in depth {ce.depth}")
+                    stuck_elements.append(ce)
                     #_LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
                     #ce.stuck = True
                     #final_elements.append(ce)
@@ -1308,8 +1311,13 @@ class Verifier:
                 raise RuntimeError()
             assert(len(elements_to_explore_now) == 0)
             if len(curr_cut.ces) > 0:
-                _LOGGER.info(f"Yielding a cut of size {len(curr_cut.ces)}")
-                yield curr_cut
+                cut_to_yield : ExeCut = ExeCut(
+                    ces=(curr_cut.ces + stuck_elements)
+                )
+                #stuck_elements = []
+                _LOGGER.info(f"Yielding a cut of size {len(cut_to_yield.ces)}")
+                yield cut_to_yield
+                # We do not want to explore the stuck elements again
                 elements_to_explore_next.ces.extend(curr_cut.ces)
 
             continue
