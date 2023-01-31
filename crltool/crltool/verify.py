@@ -1,6 +1,7 @@
 import logging
 import json
 import time
+import pprint
 
 from abc import (
     ABC,
@@ -489,8 +490,8 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
     antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
     consequent_list : Pattern = clp_to_list(rs, consequent.clp)
     ex_consequent_list : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), consequent.vars, consequent_list)
-    print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
-    print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
+    #print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
+    #print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
 
     try:
         result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
@@ -746,8 +747,9 @@ class PreGoalConjunction:
     pregoals: List[PreGoal]
 
 # Combines execution tree cuts from different executions
-def combine_exe_cuts(ecuts: List[ExeCut]) -> List[PreGoal]:
+def combine_exe_cuts(rs: ReachabilitySystem, ecuts: List[ExeCut]) -> List[PreGoal]:
     ecutelements : List[List[CutElement]] = [ec.ces for ec in ecuts]
+
     combined : List[List[CutElement]] = [list(e) for e in product(*ecutelements)]
     pregoals : List[PreGoal] = [
         PreGoal(
@@ -774,24 +776,21 @@ class ExplorationStrategy(ABC):
     # However, every yielded PreGoalConjunction has to be exhaustive.
     # Such can be generated from an ExeCut for each direction by `combine_exe_cuts`.
     @abstractmethod
-    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
+    def combine(self, rs: ReachabilitySystem, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
         ...
 
 # This exploration_strategy assumes that all the streams are finite
 class StupidExplorationStrategy(ExplorationStrategy):
-    def combine(self, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
+    def combine(self, rs: ReachabilitySystem, streams: List[Iterable[ExeCut]]) -> Iterable[PreGoalConjunction]:
         # arity == len(streams)
-        _LOGGER.debug(f"Strategy: have {len(streams)} streams")
         lists : List[List[ExeCut]] = [ list(s) for s in streams ]
-        _LOGGER.debug(f"Strategy: the streams have lenghts {[len(l) for l in lists]}")
         # arity == len(lists)
         combinations : List[List[ExeCut]] = [list(e) for e in product(*lists)]
         # for any c in combinations, arity == len(c)
         pgcs : List[PreGoalConjunction] = [
-            PreGoalConjunction(pregoals=combine_exe_cuts(combination))
+            PreGoalConjunction(pregoals=combine_exe_cuts(rs, combination))
             for combination in combinations
         ]
-        _LOGGER.debug(f"exploration strategy: have {len(pgcs)} conjunctions")
         return pgcs
 
 def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoalConjunction]) -> Iterable[PreGoalConjunction]:
@@ -829,9 +828,6 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         return None
     
     def insert_conjunctions(self, gcs: Iterable[GoalConjunction]) -> None:
-        # This would be highly suspicious
-        # TODO remove the assert since it forces us to generate a list...
-        assert all(map(lambda gc: len(list(gc.goals)) > 0, gcs)) 
         self._stack.extend(gcs)
         return
 
@@ -924,7 +920,6 @@ class Verifier:
 
 
     def advance_proof(self, conj: GoalConjunction) -> bool:
-        #_LOGGER.info(f"Advance_proof on conjunction with {len(conj.goals)} goals.")
         _LOGGER.info(f"Advance_proof on conjunction.")
 
         # We need to make progress on all the goals from the conjunction.
@@ -977,26 +972,26 @@ class Verifier:
                 for j in range(0, self.arity)
             ]
             # Each of the elements of 'combined' is a way of making 'goal' hold.
-            combined : Iterable[PreGoalConjunction] = self.exploration_strategy.combine(cuts_in_j)
+            combined : Iterable[PreGoalConjunction] = self.exploration_strategy.combine(self.rs, cuts_in_j.copy())
             combined_filtered : Iterable[PreGoalConjunction] = filter_out_pregoals_with_no_progress(combined)
             # Each of the elements of 'new_gcjs' is a way of making 'goal' hold.
-            new_gcjs : Iterable[GoalConjunction] = map(
+            new_gcjs : Iterable[GoalConjunction] = list(map( # TODO remove the list
                 lambda pgc: (
                     GoalConjunction(
-                        goals=map(
+                        goals=list(map( #TODO is the list() needed?
                             lambda pg: self.pregoal_to_goal(goal, pg),
-                            pgc.pregoals
-                        ),
+                            pgc.pregoals.copy()
+                        )),
                         can_make_steps=True,
                     )
                 ),
-                combined_filtered
-            )
-            _LOGGER.info(f"new_gcjs: {list(new_gcjs)}")
+                #combined_filtered
+                list(combined_filtered)
+            ))
             # Ok, so at least one of the new goals have to hold for the old goal to be verified.
             # But: the task was to prove all the goals from the conjunction
             new_goals_pre_conj.append(new_gcjs)
-            continue
+            #continue
 
         # We now have to convert what is effectively a conjunction of disjunctions
         # into a disjunction of conjunctions.
@@ -1005,13 +1000,13 @@ class Verifier:
         disj_of_conj_3 : Iterable[List[Iterable[VerifyGoal]]] = map(lambda l: list(map(lambda g: g.goals, l)), disj_of_conj_2)
         disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(lambda l: len(l) > 0, disj_of_conj_3)
         # Now we just flatten the list of conjunctions.
-        disj_of_conj_flattened : Iterable[GoalConjunction] = map(
+        disj_of_conj_flattened : Iterable[GoalConjunction] = (map( #TODO remove the list
             lambda lgc: GoalConjunction(
                 goals = chain(*lgc),
                 can_make_steps = True,
             ),
             disj_of_conj_4
-        )
+        ))
         self.goal_conj_chooser_strategy.insert_conjunctions(disj_of_conj_flattened)
         return False
 
@@ -1023,7 +1018,7 @@ class Verifier:
             clp = CLP(
                 constraint = goal.antecedent.clp.constraint,
                 lp = LP (
-                    patterns = pregoal.patterns
+                    patterns = pregoal.patterns.copy()
                 )
             )
         )
@@ -1068,14 +1063,14 @@ class Verifier:
     def advance_proof_general(self, goal: VerifyGoal) -> APGResult:
         _LOGGER.info(f"APG goal {goal.goal_id}")
         _LOGGER.info(f"Flushed cutpoints {len(goal.flushed_cutpoints)}")
-            
+
+        # FIXME According to the proof system, we can do this only if we do not have any unflushed circularity
         implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
         if implies_result.valid:
             # we can build a proof object using subst, Conseq, Reflexivity
             _LOGGER.info(f'Solved (antecedent implies consequent)')
             return APGResult(new_goal=None, proved=True)
 
-            #_LOGGER.info(f"Antecedent vars: {goal.antecedent.vars}") # most often should be empty
         # For each flushed cutpoint we compute a substitution which specialize it to the current 'state', if possible.
         flushed_cutpoints_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
             (antecedentC, self.check_eclp_impl_valid(goal.antecedent, antecedentC))
@@ -1118,7 +1113,6 @@ class Verifier:
             antecedentCname : str = usable_cutpoints[0][0]
             antecedentC = self.user_cutpoints[antecedentCname]
             antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
-            #_LOGGER.debug(f'New cutpoint: {antecedentCrenamed}')
             ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
             ic = goal.instantiated_cutpoints.copy()
             ic[antecedentCname] = antecedentCrenamed
@@ -1174,7 +1168,11 @@ class Verifier:
 
     def symbolic_step(self, pattern : Pattern) -> ExecuteResult:
         old = time.perf_counter()
-        step_result = self.rs.kcs.client.execute(pattern=pattern, max_depth=1)
+        step_result = self.rs.kcs.client.execute(
+            pattern=pattern,
+            max_depth=1,
+            terminal_rules=["IMP.halt"],
+        )
         new = time.perf_counter()
         self.ps.stepping.add(new - old)
         if pattern.__hash__() in self.sscache:
@@ -1220,12 +1218,13 @@ class Verifier:
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
         # This is the initial cut
-        elements_to_explore_next : ExeCut = ExeCut(ces=[
+        initial_cut : ExeCut = ExeCut(ces=[
             CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
         ])
-        yield elements_to_explore_next
+        yield initial_cut
+        elements_to_explore_next : ExeCut = ExeCut(ces=initial_cut.ces.copy())
         while len(elements_to_explore_next.ces) > 0:
-            elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces
+            elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces.copy()
             elements_to_explore_next.ces = []
             curr_cut = ExeCut(ces=[])
             while len(elements_to_explore_now) > 0:
@@ -1299,9 +1298,9 @@ class Verifier:
                         elements_to_explore_next.ces.append(new_ce)
                     continue
                 
-                if step_result.reason == StopReason.STUCK:
-                    _LOGGER.info(f"Stuck in depth {ce.depth}")
-                    _LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
+                if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
+                    _LOGGER.info(f"Stuck (or terminal rule) in depth {ce.depth}")
+                    #_LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
                     #ce.stuck = True
                     #final_elements.append(ce)
                     continue

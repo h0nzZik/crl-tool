@@ -1,5 +1,6 @@
 // Taken from https://github.com/runtimeverification/k/blob/3c5e1c329dc69085ac3878583985d52cfc420a9c/k-distribution/pl-tutorial/1_k/2_imp/lesson_4/imp.k
-// We replaced 'seqstrict' with 'seqstrict' for performance reasons
+// We replaced 'seqstrict' with 'seqstrict' for performance reasons.
+// Also, we added `halt()`
 // Copyright (c) 2014-2019 K Team. All Rights Reserved.
 
 requires "my-prelude.md"
@@ -41,35 +42,36 @@ module IMP
                   <state color="red"> .Map </state>
                 </T>
 
-  syntax Bool ::= compareCells(KCell, KCell) [function]
 
-  //rule compareCells(A, B) => A ==K B
+  rule <k> X:Id => STATE[X] ... </k> <state> STATE </state> requires X in_keys(STATE)
 
-  rule [myrule]: compareCells(A, B) => (ListItem(A) ListItem(A)) ==K (ListItem(B) ListItem(B))
+  rule <k> I1 / I2 => I1 /Int I2 ... </k>  requires I2 =/=Int 0
+  rule <k> I1 + I2 => I1 +Int I2 ... </k>
 
-// AExp
-  rule <k> X:Id => I ...</k> <state>... X |-> I ...</state>
-  rule I1 / I2 => I1 /Int I2  requires I2 =/=Int 0
-  rule I1 + I2 => I1 +Int I2
-  rule - I1 => 0 -Int I1
-// BExp
-  rule I1 <= I2 => I1 <=Int I2
-  rule ! T => notBool T
-  rule true && B => B
-  rule false && _ => false
-// Block
-  rule {} => .   [structural]
-  rule {S} => S  [structural]
-// Stmt
-  rule <k> X = I:Int; => . ...</k> <state>... X |-> (_ => I) ...</state>
-  rule S1:Stmt S2:Stmt => S1 ~> S2  [structural]
-  rule if (true)  S else _ => S
-  rule if (false) _ else S => S
-  rule while (B) S => if (B) {S while (B) S} else {}  [structural]
-// Pgm
-  rule <k> int (X,Xs => Xs);_ </k> <state> Rho:Map (.Map => X|->0) </state>
-    requires notBool (X in_keys(Rho))
-  rule int .Ids; S => S  [structural]
+  rule <k> I1 <= I2   => I1 <=Int I2 ... </k>
+  rule <k> ! T        => notBool T   ... </k>
+  rule <k> true && B  => B           ... </k>
+  rule <k> false && _ => false       ... </k>
+
+  rule <k> {}  => . ... </k>
+  rule <k> {S} => S ... </k>
+
+  rule <k> X = I:Int; => . ... </k> <state> STATE => STATE [ X <- I ] </state>
+
+  rule <k> S1:Stmt S2:Stmt => S1 ~> S2 ... </k>
+
+  rule <k> if (true)  S else _ => S ... </k>
+  rule <k> if (false) _ else S => S ... </k>
+
+  rule <k> while (B) S => if (B) {S while (B) S} else {} ... </k>
+
+  rule <k> int (X , Xs => Xs) ; _ ... </k> <state> STATE => STATE [ X <- 0 ] </state>
+    requires notBool (X in keys(STATE))
+
+  rule <k> int .Ids ; S => S ... </k>
+
+
+  rule [halt]: <k> halt() => . ... </k>
 
 // verification ids
   syntax Id ::= "n"     [token]
