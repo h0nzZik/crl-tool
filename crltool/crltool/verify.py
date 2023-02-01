@@ -499,7 +499,9 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
     try:
         result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
     except:
-        _LOGGER.error(f"Implication failed: {antecedent_list} -> {ex_consequent_list}")
+        _LOGGER.error(f"Implication failed: Antecedent -> Consequent")
+        _LOGGER.error(f"Antecedent: {rs.kprint.kore_to_pretty(antecedent_list)}")
+        _LOGGER.error(f"Consequent: {rs.kprint.kore_to_pretty(ex_consequent_list)}")
         raise
     return EclpImpliesResult(result.satisfiable, result.substitution)
 
@@ -1129,11 +1131,15 @@ class Verifier:
             antecedentCname : str = usable_cutpoints[0][0]
             antecedentC = self.user_cutpoints[antecedentCname]
             consequent_vars = free_evars_of_clp(self.consequent.clp)
-            antecedentCrenamed = rename_vars_eclp_to_fresh(
+            # We want to generalize on all variables of the candidate circularity.
+            # TODO: What if some variables `v:s` of the candidate circularity is present in the consequent?
+            #vars_to_generalize = [ev for ev in free_evars_of_clp(antecedentC.clp) if ev not in consequent_vars]
+            vars_to_generalize = [ev for ev in free_evars_of_clp(antecedentC.clp)]
+            antecedentCrenamed = rename_and_generalize_vars_eclp_to_fresh(
                 vars_to_avoid=list(
                     free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp)).union(consequent_vars)
                 ),
-                vars_to_rename=[ev for ev in free_evars_of_clp(antecedentC.clp) if ev not in consequent_vars],
+                vars_to_rename=vars_to_generalize,
                 eclp=antecedentC,
             )
             ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
@@ -1368,15 +1374,17 @@ def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fre
     fresh_evars : List[EVar] = list(map(lambda m: EVar(name=prefix + str(m), sort=sorts[m - n]), nums))
     return fresh_evars
 
-def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], vars_to_rename : List[EVar], eclp: ECLP) -> ECLP:
+def rename_and_generalize_vars_eclp_to_fresh(vars_to_avoid : List[EVar], vars_to_rename : List[EVar], eclp: ECLP) -> ECLP:
     new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, vars_to_rename)))
     fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
     to : List[str] = list(map(lambda e: e.name, new_vars))
     renaming = dict(zip(fr, to))
-    _LOGGER.info(f"fr: {fr}")
-    _LOGGER.info(f"to: {to}")
-    _LOGGER.info(f"Renaming: {renaming}")
-    return rename_vars_eclp(renaming, eclp.copy())
+    #_LOGGER.info(f"fr: {fr}")
+    #_LOGGER.info(f"to: {to}")
+    #_LOGGER.info(f"Renaming: {renaming}")
+    clp = rename_vars_clp(renaming, eclp.clp)
+    return ECLP(vars=new_vars, clp=clp)
+
 
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
@@ -1391,9 +1399,10 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
     user_cutpoints_2 = user_cutpoints.copy()
     consequent_vars = free_evars_of_clp(consequent.clp)
     if settings.goal_as_cutpoint:
-        new_cutpoint = rename_vars_eclp_to_fresh(
-            vars_to_avoid=list(free_evars_of_clp(antecedent.clp)),
-            vars_to_rename=[ev for ev in free_evars_of_clp(antecedent.clp) if ev not in consequent_vars], 
+        vars_to_generalize = [ev for ev in free_evars_of_clp(antecedent.clp) if ev not in consequent_vars]
+        new_cutpoint = rename_and_generalize_vars_eclp_to_fresh(
+            vars_to_avoid=list(free_evars_of_clp(antecedent.clp).union(consequent_vars)),
+            vars_to_rename=vars_to_generalize, 
             eclp=antecedent,
         )
         user_cutpoints_2['default']=new_cutpoint
