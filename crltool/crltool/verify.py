@@ -485,11 +485,14 @@ def clp_to_list(rs : ReachabilitySystem, clp : CLP) -> Pattern:
     constrained = And(SortApp('SortList', ()), resulting_list, Floor(rs.top_sort, SortApp('SortList', ()), clp.constraint))
     return constrained
 
+def eclp_to_list(rs: ReachabilitySystem, eclp: ECLP) -> Pattern:
+    l : Pattern = clp_to_list(rs, eclp.clp)
+    ex_l : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), eclp.vars, l)
+    return ex_l
 
 def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> EclpImpliesResult:
     antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
-    consequent_list : Pattern = clp_to_list(rs, consequent.clp)
-    ex_consequent_list : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), consequent.vars, consequent_list)
+    ex_consequent_list : Pattern = eclp_to_list(rs, consequent)
     #print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
     #print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
 
@@ -971,6 +974,7 @@ class Verifier:
                     instantiated_cutpoints=goal.instantiated_cutpoints,
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                    progress_from_initial=False,
                 )
                 for j in range(0, self.arity)
             ]
@@ -1068,10 +1072,13 @@ class Verifier:
         return r
 
  
+    def eclp_to_pretty(self, eclp: ECLP) -> str:
+        return self.rs.kprint.kore_to_pretty(eclp_to_list(self.rs, eclp))
 
     def advance_proof_general(self, goal: VerifyGoal) -> APGResult:
         _LOGGER.info(f"APG goal {goal.goal_id}")
         _LOGGER.info(f"Flushed cutpoints {len(goal.flushed_cutpoints)}")
+        print(self.eclp_to_pretty(goal.antecedent))
 
         # FIXME According to the proof system, we can do this only if we do not have any unflushed circularity
         implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
@@ -1121,10 +1128,19 @@ class Verifier:
             # We filter [user_cutpoints] to prevent infinite loops
             antecedentCname : str = usable_cutpoints[0][0]
             antecedentC = self.user_cutpoints[antecedentCname]
-            antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
+            consequent_vars = free_evars_of_clp(self.consequent.clp)
+            antecedentCrenamed = rename_vars_eclp_to_fresh(
+                vars_to_avoid=list(
+                    free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp)).union(consequent_vars)
+                ),
+                vars_to_rename=[ev for ev in free_evars_of_clp(antecedentC.clp) if ev not in consequent_vars],
+                eclp=antecedentC,
+            )
             ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
             ic = goal.instantiated_cutpoints.copy()
             ic[antecedentCname] = antecedentCrenamed
+            _LOGGER.debug(f'New goal: {self.eclp_to_pretty(antecedentC.with_no_vars())}')
+            _LOGGER.debug(f'Added circularity: {self.eclp_to_pretty(antecedentCrenamed)}')
             ng = VerifyGoal(
                 goal_id=new_goal_id,
                 antecedent=antecedentC.with_no_vars(),
@@ -1157,13 +1173,14 @@ class Verifier:
         usable_user_cutpoints : List[ECLP] = [self.user_cutpoints[name] for name in self.user_cutpoints if name not in user_cutpoint_blacklist]
         fcv = list(flushed_cutpoints.values())
         what = usable_user_cutpoints + fcv + [self.consequent]
-        #_LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
+        _LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
         for eclp in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             
             #_LOGGER.debug(f"Checking implication to {self.rs.kprint.kore_to_pretty(phi)}")
             try:
                 if self.implies_small(pattern_j, phi):
+                    _LOGGER.debug(f"Implies {self.rs.kprint.kore_to_pretty(phi)}")
                     return True
             except:
                 _LOGGER.error("Implies exception. LHS, RHS follows.")
@@ -1237,7 +1254,7 @@ class Verifier:
         instantiated_cutpoints : Dict[str, ECLP],
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
-        progress_from_initial : bool = False,
+        progress_from_initial : bool,
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
 
@@ -1277,7 +1294,6 @@ class Verifier:
                     ))
                 yield from self.combine_exe_cuts_0(its)
                 #combined0 = self.combine_exe_cuts_0(its)
-                #return combined0
                 #for c in combined0:
                 #    yield c
                 return
@@ -1352,11 +1368,15 @@ def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fre
     fresh_evars : List[EVar] = list(map(lambda m: EVar(name=prefix + str(m), sort=sorts[m - n]), nums))
     return fresh_evars
 
-def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
-    eclp2 = eclp.copy()
-    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, eclp2.vars)))
-    renaming = dict(zip(map(lambda e: e.name, eclp2.vars), map(lambda e: e.name, new_vars)))
-    return rename_vars_eclp(renaming, eclp2)
+def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], vars_to_rename : List[EVar], eclp: ECLP) -> ECLP:
+    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, vars_to_rename)))
+    fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
+    to : List[str] = list(map(lambda e: e.name, new_vars))
+    renaming = dict(zip(fr, to))
+    _LOGGER.info(f"fr: {fr}")
+    _LOGGER.info(f"to: {to}")
+    _LOGGER.info(f"Renaming: {renaming}")
+    return rename_vars_eclp(renaming, eclp.copy())
 
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
@@ -1369,8 +1389,13 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
     _LOGGER.debug(f"Going to try to prove the consequent with variables: {consequent.vars}")
     _LOGGER.debug(f"{[rs.kprint.kore_to_pretty(phi) for phi in consequent.clp.lp.patterns]}")
     user_cutpoints_2 = user_cutpoints.copy()
+    consequent_vars = free_evars_of_clp(consequent.clp)
     if settings.goal_as_cutpoint:
-        new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
+        new_cutpoint = rename_vars_eclp_to_fresh(
+            vars_to_avoid=list(free_evars_of_clp(antecedent.clp)),
+            vars_to_rename=[ev for ev in free_evars_of_clp(antecedent.clp) if ev not in consequent_vars], 
+            eclp=antecedent,
+        )
         user_cutpoints_2['default']=new_cutpoint
         
     verifier = Verifier(
