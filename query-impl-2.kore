@@ -1,8 +1,0 @@
-\implies { SortGeneratedTopCell { } } (
-    \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-' { } ( Lbl'-LT-'T'-GT-' { } ( Lbl'-LT-'k'-GT-' { } ( dotk { } ( ) ), Lbl'-LT-'state'-GT-' { } ( Lbl'Unds'Map'Unds' { } ( Lbl'UndsPipe'-'-GT-Unds' { } ( inj { SortId { }, SortKItem { } } ( \dv { SortId { } } ( "y" ) ), inj { SortInt { }, SortKItem { } } ( VarY0 : SortInt { } ) ), Lbl'UndsPipe'-'-GT-Unds' { } ( inj { SortId { }, SortKItem { } } ( \dv { SortId { } } ( "x" ) ), inj { SortInt { }, SortKItem { } } ( VarX0 : SortInt { } ) ) ) ) ), Lbl'-LT-'generatedCounter'-GT-' { } ( \dv { SortInt { } } ( "0" ) ) ),
-      \not{SortGeneratedTopCell{}}(\equals{SortInt{}, SortGeneratedTopCell{}}(VarX0:SortInt{}, VarY0:SortInt{}))
-    ),
-    \exists{SortGeneratedTopCell{}}(VarXprime0:SortInt{},
-    \exists{SortGeneratedTopCell{}}(VarYprime0:SortInt{},
-    \and{SortGeneratedTopCell{}}(Lbl'-LT-'generatedTop'-GT-' { } ( Lbl'-LT-'T'-GT-' { } ( Lbl'-LT-'k'-GT-' { } ( dotk { } ( ) ), Lbl'-LT-'state'-GT-' { } ( Lbl'Unds'Map'Unds' { } ( Lbl'UndsPipe'-'-GT-Unds' { } ( inj { SortId { }, SortKItem { } } ( \dv { SortId { } } ( "y" ) ), inj { SortInt { }, SortKItem { } } ( VarYprime0 : SortInt { } ) ), Lbl'UndsPipe'-'-GT-Unds' { } ( inj { SortId { }, SortKItem { } } ( \dv { SortId { } } ( "x" ) ), inj { SortInt { }, SortKItem { } } ( VarXprime0 : SortInt { } ) ) ) ) ), Lbl'-LT-'generatedCounter'-GT-' { } ( \dv { SortInt { } } ( "0" ) ) ), \not{SortGeneratedTopCell{}}(\equals{SortInt{}, SortGeneratedTopCell{}}(\dv{SortInt{}}("0"), VarXprime0:SortInt{})))))
-)
