@@ -536,7 +536,7 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         l = [GoalConjunction(goals=list(gc.goals), can_make_steps=gc.can_make_steps)  for gc in gcs]
         # We can do len(list(...)) only because it actually is a list, see the line above
         _LOGGER.info(f"Inserting goal conjunctions: {[(len(list(x.goals)), x.can_make_steps) for x in l]}")
-        pprint.pprint([[g.candidate_matches for g in x.goals] for x in l])
+        #pprint.pprint([[g.candidate_matches for g in x.goals] for x in l])
         self._stack.extend(l)
         return
 
@@ -645,7 +645,7 @@ class Verifier:
         ]
         if all([apgr.proved for _,apgr in apgresults]):
             _LOGGER.info(f"All goals ({len(apgresults)}) of the conjunction were proved")
-            pprint.pprint({ g.goal_id : g.candidate_matches for g in conj.goals})
+            #pprint.pprint({ g.goal_id : g.candidate_matches for g in conj.goals})
             return True
         
         if not conj.can_make_steps:
@@ -985,7 +985,7 @@ class Verifier:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             
             if self.implies_small(pattern_j, phi):
-                _LOGGER.debug(f"Implies {self.rs.kprint.kore_to_pretty(phi)}")
+                #_LOGGER.debug(f"Implies {self.rs.kprint.kore_to_pretty(phi)}")
                 usable.append(candidate)
             
         for name, eclp in self.trusted_axioms.items():
