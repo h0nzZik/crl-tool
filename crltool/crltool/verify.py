@@ -792,11 +792,15 @@ class Verifier:
     def transform_goals(self, goals: List[VerifyGoal]) -> Optional[List[VerifyGoal]]:
         new_goals : List[VerifyGoal] = []
         for goal in goals:
+            # If the matches on individual components share a source, the goal might be provable.
             if len(combine_candidate_matches(goal.candidate_matches)) >= 1:
                 new_goals.append(goal)
                 continue
+            # If they do not share a source, the goal is provable only if the antecedent is contradictory.
             if self.is_contradiction(goal.antecedent):
                 continue
+            # So if the antecedent is NOT contradictory, the goal is unprovable, and the whole contradiction
+            # is not worth trying.
             return None
         return new_goals
 
