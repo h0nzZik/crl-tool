@@ -1335,6 +1335,7 @@ class Verifier:
                 
             if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
                 _LOGGER.info(f"Stuck (or terminal rule) in depth {depth}")
+                return # An optimization
                 break
             _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
             raise RuntimeError()
