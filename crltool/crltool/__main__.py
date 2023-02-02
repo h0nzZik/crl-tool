@@ -260,7 +260,7 @@ def add_generated_stuff(phi : Pattern, counter_variable_name : str) -> Pattern:
         ),
     )
 
-def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
+def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim, claim_id: int) -> Claim:
     body = claim.body
     lhs = extract_lhs(body)
     rhs = extract_rhs(body)
@@ -272,13 +272,13 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
     list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs]
     evars = list(chain.from_iterable([free_evars_of_pattern(p) for p in list_rhs_kore]))
     
-    lhs_generated_counters = [f"VARGENERATEDCOUNTER{i}" for i in range(len(list_lhs_kore))]
-    rhs_generated_counters = [f"VARGENERATEDCOUNTERPRIME{i}" for i in range(len(list_rhs_kore))]
+    lhs_generated_counters = [f"VARGENERATED{claim_id}COUNTER{i}" for i in range(len(list_lhs_kore))]
+    rhs_generated_counters = [f"VARGENERATED{claim_id}COUNTERPRIME{i}" for i in range(len(list_rhs_kore))]
     list_lhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_lhs_kore,lhs_generated_counters)]
     list_rhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_rhs_kore,rhs_generated_counters)]
 
     question_mark_variables = [
-        ev for ev in evars if ev.name.startswith("Var'Ques'")
+        ev for ev in evars if ev.name.startswith("Var'Ques")
     ] + [
         EVar(name=name, sort=SortApp('SortInt', ()))  for name in rhs_generated_counters
     ]
@@ -312,15 +312,15 @@ def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) 
     trusted_claims: Dict[str,Claim] = dict()
     cutpoints: Dict[str,ECLP] = dict()
     rl_circularities : Dict[str,RLCircularity] = dict()
-    for claim in mod.claims:
+    for claim, claim_id in zip(mod.claims, range(len(mod.claims))):
         cart : bool = claim_is_cartesian(claim)
         trusted : bool = claim_is_trusted(claim)
         sen : KSentence = claim
         if cart:
             if trusted:
-                trusted_claims[sen.label] = extract_crl_claim(rs, claim)
+                trusted_claims[sen.label] = extract_crl_claim(rs, claim, claim_id=claim_id)
             else:
-                claims[sen.label] = extract_crl_claim(rs, claim)
+                claims[sen.label] = extract_crl_claim(rs, claim, claim_id=claim_id)
         else:
             _LOGGER.warning("Non-cartesian claims are not supported yet")
         # TODO extract cutpoints and circularities...
