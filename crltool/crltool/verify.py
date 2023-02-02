@@ -12,6 +12,8 @@ from collections.abc import Iterable
 
 from dataclasses import dataclass
 
+from enum import Enum
+
 from functools import (
     reduce,
 )
@@ -242,6 +244,9 @@ def rename_vars(renaming: Dict[str, str], phi: Pattern) -> Pattern:
             raise NotImplementedError()
     raise NotImplementedError()
         
+
+CandidateType = Enum('CandidateType', ['Consequent', 'Axiom', 'CandidateCircularity', 'FlushedCircularity'])
+Candidate = Tuple[CandidateType, str]
 
 @final
 @dataclass
@@ -901,29 +906,33 @@ class Verifier:
         j: int,
         flushed_cutpoints : Dict[str,ECLP],
         user_cutpoint_blacklist : List[str]
-    ) -> bool:
-        usable_user_cutpoints : List[ECLP] = [self.user_cutpoints[name] for name in self.user_cutpoints if name not in user_cutpoint_blacklist]
-        fcv = list(flushed_cutpoints.values())
-        what = usable_user_cutpoints + fcv + [self.consequent]
+    ) -> List[Candidate]:
+        Candidate
+        usable_user_cutpoints : List[Tuple[ECLP, Candidate]] = [
+            (self.user_cutpoints[name], (CandidateType.CandidateCircularity, name))
+            for name in self.user_cutpoints
+            if name not in user_cutpoint_blacklist
+        ]
+        fcv : List[Tuple[ECLP, Candidate]] = [
+            (eclp, (CandidateType.FlushedCircularity, name))
+            for name,eclp in flushed_cutpoints.items()
+        ]
+        
+        usable : List[Candidate] = []
+        what : List[Tuple[ECLP, Candidate]] = usable_user_cutpoints + fcv + [(self.consequent, (CandidateType.Consequent, ""))]
         _LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
-        for eclp in what:
+        for eclp, candidate in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             
-            #_LOGGER.debug(f"Checking implication to {self.rs.kprint.kore_to_pretty(phi)}")
-            try:
-                if self.implies_small(pattern_j, phi):
-                    _LOGGER.debug(f"Implies {self.rs.kprint.kore_to_pretty(phi)}")
-                    return True
-            except:
-                _LOGGER.error("Implies exception. LHS, RHS follows.")
-                _LOGGER.error(self.rs.kprint.kore_to_pretty(pattern_j))
-                _LOGGER.error(self.rs.kprint.kore_to_pretty(phi))
-                raise
-        
+            if self.implies_small(pattern_j, phi):
+                _LOGGER.debug(f"Implies {self.rs.kprint.kore_to_pretty(phi)}")
+                usable.append(candidate)
+            
         for name, eclp in self.trusted_axioms.items():
             if self.implies_small_alpha(pattern_j, eclp.clp.lp.patterns[j], eclp.vars):
-                return True
-        return False
+                usable.append((CandidateType.Axiom, name))
+
+        return usable
 
 
     sscache : Dict[int, int] = dict()
@@ -933,7 +942,7 @@ class Verifier:
         step_result = self.rs.kcs.client.execute(
             pattern=pattern,
             max_depth=1,
-            terminal_rules=["IMP.halt"],
+            terminal_rules=["IMP.halt"], # TODO abstract this away
         )
         new = time.perf_counter()
         self.ps.stepping.add(new - old)
