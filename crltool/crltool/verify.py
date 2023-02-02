@@ -245,7 +245,13 @@ def rename_vars(renaming: Dict[str, str], phi: Pattern) -> Pattern:
     raise NotImplementedError()
         
 
-CandidateType = Enum('CandidateType', ['Consequent', 'Axiom', 'CandidateCircularity', 'FlushedCircularity'])
+CandidateType = Enum('CandidateType', [
+    'Consequent',
+    'Axiom',
+    'CandidateCircularity',
+    'FlushedCircularity',
+    'Stuck',
+    'Branching'])
 Candidate = Tuple[CandidateType, str]
 
 @final
@@ -254,6 +260,8 @@ class VerifySettings:
     check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
     goal_as_cutpoint : bool
     max_depth : int
+    cut_on_branch : bool
+    filter_candidate_matches : bool
 
 @dataclass
 class VerifyGoal:
@@ -502,19 +510,6 @@ def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoalConjunction])
         yield pgc
     return
 
-def filter_out_goals_with_empty_candidate_matches(rs : ReachabilitySystem, gcs: Iterable[GoalConjunction]) -> Iterable[GoalConjunction]:
-    for gc in gcs:
-        goals = list(gc.goals)
-        matches = [g.candidate_matches for g in goals]
-        _LOGGER.info(f"Filter: ({matches})")
-        where_empty = [ len(combine_candidate_matches(m)) == 0 for m in matches]
-        if any(where_empty):
-            _LOGGER.info(f"Filtering out a conjunction of {len(goals)} goals since one of them has empty matches.")
-            pprint.pprint([[rs.kprint.kore_to_pretty(eclp_to_list(rs, g.antecedent)) ] for g,b in zip(goals,where_empty) if b])
-            continue
-        yield GoalConjunction(goals=goals, can_make_steps=gc.can_make_steps)
-    return
-
 # We have a bunch of conjunctions of goals, and we want to prove at least one conjunction of those.
 # This class manages the conjunctions
 class GoalConjunctionChooserStrategy(ABC):
@@ -543,6 +538,7 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         l = [GoalConjunction(goals=list(gc.goals), can_make_steps=gc.can_make_steps)  for gc in gcs]
         # We can do len(list(...)) only because it actually is a list, see the line above
         _LOGGER.info(f"Inserting goal conjunctions: {[(len(list(x.goals)), x.can_make_steps) for x in l]}")
+        pprint.pprint([[g.candidate_matches for g in x.goals] for x in l])
         self._stack.extend(l)
         return
 
@@ -651,6 +647,7 @@ class Verifier:
         ]
         if all([apgr.proved for _,apgr in apgresults]):
             _LOGGER.info(f"All goals ({len(apgresults)}) of the conjunction were proved")
+            pprint.pprint({ g.goal_id : g.candidate_matches for g in conj.goals})
             return True
         
         if not conj.can_make_steps:
@@ -694,7 +691,6 @@ class Verifier:
             # Each of the elements of 'combined' is a way of making 'goal' hold.
             combined : Iterable[PreGoalConjunction] = self.exploration_strategy.combine(self.rs, cuts_in_j.copy())
             combined_filtered : Iterable[PreGoalConjunction] = filter_out_pregoals_with_no_progress(combined)
-            combined_filtered_2 : Iterable[PreGoalConjunction] = combined_filtered #filter_out_pregoals_with_empty_candidate_matches_list(combined_filtered)
             # Each of the elements of 'new_gcjs' is a way of making 'goal' hold.
             new_gcjs : Iterable[GoalConjunction] = list(map( # TODO remove the list
                 lambda pgc: (
@@ -707,7 +703,7 @@ class Verifier:
                     )
                 ),
                 #combined_filtered
-                list(combined_filtered_2)
+                list(combined_filtered)
             ))
             # Ok, so at least one of the new goals have to hold for the old goal to be verified.
             # But: the task was to prove all the goals from the conjunction
@@ -734,8 +730,9 @@ class Verifier:
             ),
             disj_of_conj_4
         ))
-        disj_of_conj_flattened_2 : Iterable[GoalConjunction] = filter_out_goals_with_empty_candidate_matches(self.rs, disj_of_conj_flattened)
-        self.goal_conj_chooser_strategy.insert_conjunctions(disj_of_conj_flattened_2)
+        if self.settings.filter_candidate_matches:
+            disj_of_conj_flattened = self.filter_out_goals_with_empty_candidate_matches(disj_of_conj_flattened)
+        self.goal_conj_chooser_strategy.insert_conjunctions(disj_of_conj_flattened)
         return False
 
     def pregoal_to_goal(self, goal: VerifyGoal, pregoal: PreGoal) -> VerifyGoal:
@@ -777,6 +774,39 @@ class Verifier:
             candidate_matches=pregoal.candidate_matches.copy(),
             #component_matches_something=component_matches_something,
         )
+
+    def is_contradiction(self, eclp: ECLP) -> bool:
+        return self.check_eclp_impl_valid(
+            eclp,
+            ECLP(
+                vars=[],
+                clp=CLP(
+                    lp=LP(
+                        patterns=[Bottom(self.rs.top_sort) for _ in range(len(eclp.clp.lp.patterns))]
+                    ),
+                    constraint=Bottom(self.rs.top_sort),
+                )
+            )
+        ).valid
+    
+    def transform_goals(self, goals: List[VerifyGoal]) -> Optional[List[VerifyGoal]]:
+        new_goals : List[VerifyGoal]
+        for goal in goals:
+            if len(combine_candidate_matches(goal.candidate_matches)) >= 1:
+                new_goals.append(goal)
+                continue
+            if self.is_contradiction(goal.antecedent):
+                continue
+            return None
+        return new_goals
+
+    def filter_out_goals_with_empty_candidate_matches(self, gcs: Iterable[GoalConjunction]) -> Iterable[GoalConjunction]:
+        for gc in gcs:
+            new_goals = self.transform_goals(list(gc.goals))
+            if new_goals is not None:
+                yield GoalConjunction(goals=new_goals, can_make_steps=gc.can_make_steps)    
+        return
+
 
 
     def check_eclp_impl_valid(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
@@ -948,7 +978,7 @@ class Verifier:
         
         usable : List[Candidate] = []
         what : List[Tuple[ECLP, Candidate]] = usable_user_cutpoints + fcv + [(self.consequent, (CandidateType.Consequent, ""))]
-        _LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
+        #_LOGGER.debug(f"Implication checking: usable user cutpoints: {len(usable_user_cutpoints)}, flushed cutpoints: {len(fcv)}")
         for eclp, candidate in what:
             phi = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), eclp.vars, eclp.clp.lp.patterns[j])
             
@@ -958,6 +988,7 @@ class Verifier:
             
         for name, eclp in self.trusted_axioms.items():
             if self.implies_small_alpha(pattern_j, eclp.clp.lp.patterns[j], eclp.vars):
+                _LOGGER.debug(f"Trusted axiom '{name}' matches on component {j}")
                 usable.append((CandidateType.Axiom, name))
 
         return usable
@@ -1028,6 +1059,7 @@ class Verifier:
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
         progress_from_initial : bool,
+        branching : bool = False,
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
 
@@ -1041,6 +1073,9 @@ class Verifier:
             ),
             user_cutpoint_blacklist=user_cutpoint_blacklist
         )
+        if branching and self.settings.cut_on_branch:
+            matches00.append((CandidateType.Branching, ""))
+
         if len(matches00) >= 1 or (depth >= self.settings.max_depth):
             if len(matches00) < 1 and (depth >= self.settings.max_depth):
                 _LOGGER.warning("Emiting a cut which does not match.")
@@ -1066,6 +1101,7 @@ class Verifier:
                         flushed_cutpoints=flushed_cutpoints,
                         progress_from_initial=progress_from_initial,
                         user_cutpoint_blacklist=user_cutpoint_blacklist,
+                        branching=True,
                     ))
                 yield from self.combine_exe_cuts_0(its)
                 #combined0 = self.combine_exe_cuts_0(its)
@@ -1116,7 +1152,7 @@ class Verifier:
             phi=phi,
             depth=depth,
             stuck=True,
-            matches=matches00.copy(),
+            matches=matches00.copy(), #[(CandidateType.Stuck, "")],
             progress_from_initial=progress_from_initial
         )
         if len(matches00) >= 1:

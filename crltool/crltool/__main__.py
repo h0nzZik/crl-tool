@@ -116,6 +116,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_prove.add_argument('--depth', type=int, default=10)
     subparser_prove.add_argument('--from-json', action='store_true', default=False)
     subparser_prove.add_argument('--trusted-claim-blacklist', type=str, default="")
+    subparser_prove.add_argument('--cut-on-branch', action='store_true', default=False)
+    subparser_prove.add_argument('--filter-candidate-matches', action='store_true', default=False)
 
     subparser_load_frontend_spec = subparsers.add_parser('load-frontend-spec', help='Load a frontend-generated specification')
     subparser_load_frontend_spec.add_argument('--specification', required=True)
@@ -380,6 +382,8 @@ def prove(rs: ReachabilitySystem, args) -> int:
         check_eclp_impl_valid=eclp_impl_valid_trough_lists,
         max_depth=int(args['depth']),
         goal_as_cutpoint=True,
+        cut_on_branch=bool(args['cut_on_branch']),
+        filter_candidate_matches=bool(args['filter_candidate_matches']),
     )
     for claim_name,claim in spec.claims.items():
         _LOGGER.info(f"Going to verify claim {claim_name}")
