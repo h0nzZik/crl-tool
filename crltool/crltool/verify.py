@@ -790,7 +790,7 @@ class Verifier:
         ).valid
     
     def transform_goals(self, goals: List[VerifyGoal]) -> Optional[List[VerifyGoal]]:
-        new_goals : List[VerifyGoal]
+        new_goals : List[VerifyGoal] = []
         for goal in goals:
             if len(combine_candidate_matches(goal.candidate_matches)) >= 1:
                 new_goals.append(goal)
