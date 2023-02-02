@@ -755,6 +755,19 @@ class Verifier:
         self.ps.big_impl.add(new - old)
         return r
 
+    def check_eclp_impl_valid_alpha(self, antecedent: ECLP, consequent: ECLP) -> EclpImpliesResult:
+        vars_to_rename = list(free_evars_of_clp(antecedent.clp))
+        vars_to_avoid = vars_to_rename + list(free_evars_of_clp(consequent.clp))
+        new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, vars_to_rename)))
+        vars_fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
+        vars_to : List[str] = list(map(lambda e: e.name, new_vars))
+        renaming = dict(zip(vars_fr, vars_to))
+        #print(f"Reanimg: {renaming}")
+        consequent_renamed = ECLP(
+            vars=[EVar(name=renaming[v.name] if v.name in renaming else v.name, sort=v.sort) for v in consequent.vars],
+            clp=rename_vars_clp(renaming, consequent.clp)
+        )
+        return self.check_eclp_impl_valid(antecedent, consequent_renamed)
  
     def eclp_to_pretty(self, eclp: ECLP) -> str:
         return self.rs.kprint.kore_to_pretty(eclp_to_list(self.rs, eclp))
@@ -785,6 +798,23 @@ class Verifier:
         if (len(usable_flushed_cutpoints) > 0):
             # Conseq, Axiom
             _LOGGER.info(f'Solved (using flushed cutpoint)')
+            return APGResult(new_goal=None, proved=True)
+
+
+        # For each axiom cutpoint we compute a substitution which specialize it to the current 'state', if possible.
+        axioms_with_subst : List[Tuple[ECLP, EclpImpliesResult]] = [
+            (axiom, self.check_eclp_impl_valid_alpha(goal.antecedent, axiom))
+            for axiom in self.trusted_axioms.values()
+        ]
+        # Is there some flushed cutpoint / axiom which matches our current state? If so, we are done.
+        usable_axioms : List[Tuple[ECLP, EclpImpliesResult]] = [
+            (antecedentC, result)
+            for (antecedentC, result) in axioms_with_subst
+            if result.valid
+        ]
+        if (len(usable_axioms) > 0):
+            # Conseq, Axiom/Admit
+            _LOGGER.info(f'Solved (using trusted axiom)')
             return APGResult(new_goal=None, proved=True)
 
         # For each user cutpoint we compute a substitution which specialize it to the current 'state', if possible.
@@ -851,6 +881,20 @@ class Verifier:
         new = time.perf_counter()
         self.ps.small_impl.add(new - old)
         return r
+    
+    def implies_small_alpha(self, antecedent: Pattern, consequent: Pattern, eqvars) -> bool:
+        vars_to_rename = list(free_evars_of_pattern(antecedent))
+        vars_to_avoid = vars_to_rename + list(free_evars_of_pattern(consequent))
+        new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, vars_to_rename)))
+        vars_fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
+        vars_to : List[str] = list(map(lambda e: e.name, new_vars))
+        renaming = dict(zip(vars_fr, vars_to))
+        consequent_renamed = rename_vars(renaming, consequent)
+        vars_renamed = [EVar(name=renaming[v.name] if v.name in renaming else v.name, sort=v.sort)
+            for v in eqvars
+        ]
+        consequent_ex = reduce(lambda p, var: Exists(self.rs.top_sort, var, p), vars_renamed, consequent_renamed)
+        return self.implies_small(antecedent, consequent_ex)
 
     def approx_implies_something(self,
         pattern_j : Pattern,
@@ -875,6 +919,10 @@ class Verifier:
                 _LOGGER.error(self.rs.kprint.kore_to_pretty(pattern_j))
                 _LOGGER.error(self.rs.kprint.kore_to_pretty(phi))
                 raise
+        
+        for name, eclp in self.trusted_axioms.items():
+            if self.implies_small_alpha(pattern_j, eclp.clp.lp.patterns[j], eclp.vars):
+                return True
         return False
 
 
