@@ -849,6 +849,7 @@ class Verifier:
     settings: VerifySettings
     exploration_strategy : ExplorationStrategy
     user_cutpoints : Dict[str, ECLP]
+    trusted_axioms : Dict[str, ECLP]
     rs: ReachabilitySystem
     arity : int
     consequent : ECLP
@@ -879,6 +880,7 @@ class Verifier:
         exploration_strategy: ExplorationStrategy,
         goal_conj_chooser_strategy : GoalConjunctionChooserStrategy,
         user_cutpoints : Dict[str, ECLP],
+        trusted_axioms : Dict[str, ECLP],
         rs: ReachabilitySystem,
         arity: int,
         antecedent : ECLP,
@@ -891,6 +893,7 @@ class Verifier:
         self.arity = arity
         self.consequent = consequent
         self.user_cutpoints = user_cutpoints
+        self.trusted_axioms = trusted_axioms
         self.last_goal_id = 1
         
         goal = VerifyGoal(
@@ -1386,33 +1389,58 @@ def rename_and_generalize_vars_eclp_to_fresh(vars_to_avoid : List[EVar], vars_to
     clp = rename_vars_clp(renaming, eclp.clp)
     return ECLP(vars=new_vars, clp=clp)
 
+def axiom_from_trusted_claim(rs: ReachabilitySystem, claim: Claim, trusted_claim: Claim, vars_to_avoid: List[EVar]) -> ECLP:
+    vars_to_rename = list(free_evars_of_clp(trusted_claim.antecedent.clp).union(free_evars_of_clp(trusted_claim.consequent.clp)))
+    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, vars_to_rename)))
+    vars_fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
+    vars_to : List[str] = list(map(lambda e: e.name, new_vars))
+    renaming = dict(zip(vars_fr, vars_to))
+    trusted_claim_consequent_renamed = ECLP(
+        vars=[EVar(name=renaming[v.name], sort=v.sort) for v in trusted_claim.consequent.vars],
+        clp=rename_vars_clp(renaming, trusted_claim.consequent.clp)
+    )
+    print(rs.kprint.kore_to_pretty(eclp_to_list(rs, trusted_claim_consequent_renamed)))
+
+    raise NotImplementedError()
 
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
 # user_cutpoints - List of "lockstep invariants" / "circularities" provided by user;
 #   each one is an ECLP. Note that they have not been proved to be valid;
 #   it is our task to verify them if we need to use them.
-def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, claim: Claim, claim_name : str) -> Verifier:
+def prepare_verifier(
+    settings: VerifySettings,
+    user_cutpoints : Dict[str,ECLP],
+    rs: ReachabilitySystem,
+    claim: Claim,
+    claim_name : str,
+    trusted_claims: Dict[str, Claim],
+) -> Verifier:
     antecedent = claim.antecedent
     consequent = claim.consequent
-    _LOGGER.debug(f"Going to try to prove the consequent with variables: {consequent.vars}")
-    _LOGGER.debug(f"{[rs.kprint.kore_to_pretty(phi) for phi in consequent.clp.lp.patterns]}")
     user_cutpoints_2 = user_cutpoints.copy()
+    antecedent_vars = free_evars_of_clp(antecedent.clp)
     consequent_vars = free_evars_of_clp(consequent.clp)
+    vars_to_avoid : List[EVar] = list(antecedent_vars.union(consequent_vars))
     if settings.goal_as_cutpoint:
         vars_to_generalize = [ev for ev in free_evars_of_clp(antecedent.clp) if ev not in consequent_vars]
         new_cutpoint = rename_and_generalize_vars_eclp_to_fresh(
-            vars_to_avoid=list(free_evars_of_clp(antecedent.clp).union(consequent_vars)),
+            vars_to_avoid=vars_to_avoid,
             vars_to_rename=vars_to_generalize, 
             eclp=antecedent,
         )
         user_cutpoints_2['default']=new_cutpoint
-        
+
+    trusted_axioms: Dict[str, ECLP] = dict()    
+    for n,tc in trusted_claims.items():
+        trusted_axioms[n] = axiom_from_trusted_claim(rs, claim, tc, vars_to_avoid=vars_to_avoid)
+
     verifier = Verifier(
         settings=settings,
         exploration_strategy=StupidExplorationStrategy(),
         goal_conj_chooser_strategy=StackGoalConjunctionChooserStrategy(),
         user_cutpoints=user_cutpoints_2,
+        trusted_axioms=trusted_axioms,
         rs=rs,
         arity=len(antecedent.clp.lp.patterns),
         antecedent=antecedent.with_no_vars(),
@@ -1421,5 +1449,5 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
     return verifier
 
 def verify(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], rs: ReachabilitySystem, claim: Claim, claim_name : str) -> VerifyResult:
-    verifier = prepare_verifier(settings, user_cutpoints, rs, claim, claim_name)
+    verifier = prepare_verifier(settings, user_cutpoints, rs, claim, claim_name, trusted_claims=dict())
     return verifier.verify()
