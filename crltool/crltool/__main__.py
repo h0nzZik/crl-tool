@@ -115,6 +115,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     subparser_prove.add_argument('--specification', required=True)
     subparser_prove.add_argument('--depth', type=int, default=10)
     subparser_prove.add_argument('--from-json', action='store_true', default=False)
+    subparser_prove.add_argument('--trusted-claim-blacklist', type=str, default="")
 
     subparser_load_frontend_spec = subparsers.add_parser('load-frontend-spec', help='Load a frontend-generated specification')
     subparser_load_frontend_spec.add_argument('--specification', required=True)
@@ -307,7 +308,11 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim, claim_id: int) -> C
     )
 
 
-def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) -> Specification:
+def extract_crl_spec_from_flat_module(
+    rs: ReachabilitySystem,
+    mod: KFlatModule,
+    trusted_claim_blacklist : List[str]
+) -> Specification:
     claims: Dict[str,Claim] = dict()
     trusted_claims: Dict[str,Claim] = dict()
     cutpoints: Dict[str,ECLP] = dict()
@@ -318,7 +323,8 @@ def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) 
         sen : KSentence = claim
         if cart:
             if trusted:
-                trusted_claims[sen.label] = extract_crl_claim(rs, claim, claim_id=claim_id)
+                if sen.label not in trusted_claim_blacklist:
+                    trusted_claims[sen.label] = extract_crl_claim(rs, claim, claim_id=claim_id)
             else:
                 claims[sen.label] = extract_crl_claim(rs, claim, claim_id=claim_id)
         else:
@@ -331,18 +337,26 @@ def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) 
         rl_circularities=rl_circularities
     )
 
-def get_spec_from_file(rs: ReachabilitySystem, filename: Path) -> Specification:
+def get_spec_from_file(rs: ReachabilitySystem, filename: Path, trusted_claim_blacklist: List[str]) -> Specification:
     jsspec = get_kprove_generated_json(rs=rs, specification=filename)
     ml = KFlatModuleList.from_dict(jsspec['term'])
     #print(ml)
     for mod in ml.modules:
         if mod.name == ml.main_module:
-            spec = extract_crl_spec_from_flat_module(rs, mod)
+            spec = extract_crl_spec_from_flat_module(
+                rs=rs,
+                mod=mod,
+                trusted_claim_blacklist=trusted_claim_blacklist
+            )
             return spec
     raise ValueError("No main module found")
 
 def load_frontend_spec(rs: ReachabilitySystem, args):
-    spec : Specification = get_spec_from_file(rs=rs, filename=Path(args['specification']))
+    spec : Specification = get_spec_from_file(
+        rs=rs,
+        filename=Path(args['specification']),
+        trusted_claim_blacklist=[s.strip() for s in args['trusted_claim_blacklist'].split(",")]
+    )
     spec_str = json.dumps(spec.dict, sort_keys=True, indent=True)
     if ('output_file' not in args) or (args['output_file'] is None):
         print(spec_str)
@@ -356,7 +370,11 @@ def prove(rs: ReachabilitySystem, args) -> int:
         with open(args['specification'], 'r') as spec_f:
             spec : Specification = Specification.from_dict(json.loads(spec_f.read()))
     else:
-        spec  = get_spec_from_file(rs, filename=Path(args['specification']))
+        spec  = get_spec_from_file(
+            rs=rs,
+            filename=Path(args['specification']),
+            trusted_claim_blacklist=[s.strip() for s in args['trusted_claim_blacklist'].split(",")],
+        )
 
     settings = VerifySettings(
         check_eclp_impl_valid=eclp_impl_valid_trough_lists,
