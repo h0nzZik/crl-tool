@@ -264,12 +264,13 @@ class VerifyGoal:
     user_cutpoint_blacklist : List[str]
     #stuck : List[bool]
     total_steps : List[int]
+    candidate_matches : List[List[Candidate]]
     #max_depth : List[int]
     #component_matches_something : List[bool]
     #try_stepping : bool
     was_processed_by_advance_general : bool = False
     
-
+    # TODO we need to serialize and de-serialize 'candidate_matches' somehow
     @staticmethod
     def from_dict(dct: Mapping[str, Any]) -> 'VerifyGoal':
         return VerifyGoal(
@@ -282,6 +283,7 @@ class VerifyGoal:
             total_steps=dct['total_steps'],
             #max_depth=dct['max_depth'],
             was_processed_by_advance_general=dct['was_processed_by_advance_general'],
+            candidate_matches=dct['candidate_matches'],
             #component_matches_something=dct['component_matches_something'],
             #try_stepping=dct['try_stepping'],
         )
@@ -298,6 +300,7 @@ class VerifyGoal:
             'total_steps' : self.total_steps,
             #'max_depth' : self.max_depth,
             'was_processed_by_advance_general' : self.was_processed_by_advance_general,
+            'candidate_matches' : self.candidate_matches
             #'component_matches_something' : self.component_matches_something,
             #'try_stepping' : self.try_stepping,
         }
@@ -414,7 +417,7 @@ def add_on_position(l: List[int], j: int, m: int) -> List[int]:
 @dataclass
 class CutElement:
     phi : Pattern
-    matches : bool
+    matches : List[Candidate]
     depth : int
     stuck : bool
     progress_from_initial : bool
@@ -428,12 +431,18 @@ class PreGoal:
     patterns: List[Pattern]
     absolute_depths: List[int]
     progress_from_initial: List[bool]
+    candidate_matches: List[List[Candidate]]
 
 # Represents a bunch of pre-goals which all have to be valid at the same time
 # if they are to represent a proof
 @dataclass
 class PreGoalConjunction:
     pregoals: List[PreGoal]
+
+def combine_candidate_matches(l: List[List[Candidate]]) -> List[Candidate]:
+    result = list(set.intersection(*[set(x) for x in l]))
+    _LOGGER.info(f"Combining {l} into {result}")
+    return result
 
 # Combines execution tree cuts from different executions
 def combine_exe_cuts(rs: ReachabilitySystem, ecuts: List[ExeCut]) -> List[PreGoal]:
@@ -444,6 +453,7 @@ def combine_exe_cuts(rs: ReachabilitySystem, ecuts: List[ExeCut]) -> List[PreGoa
             patterns = [ce.phi for ce in comb],
             absolute_depths = [ce.depth for ce in comb],
             progress_from_initial = [ce.progress_from_initial for ce in comb],
+            candidate_matches = [ce.matches for ce in comb] # combine_candidate_matches(comb)
         )
         for comb in combined
     ]
@@ -490,6 +500,19 @@ def filter_out_pregoals_with_no_progress(pregoals: Iterable[PreGoalConjunction])
             if not any(pgc.pregoals[0].progress_from_initial):
                 continue
         yield pgc
+    return
+
+def filter_out_goals_with_empty_candidate_matches(rs : ReachabilitySystem, gcs: Iterable[GoalConjunction]) -> Iterable[GoalConjunction]:
+    for gc in gcs:
+        goals = list(gc.goals)
+        matches = [g.candidate_matches for g in goals]
+        _LOGGER.info(f"Filter: ({matches})")
+        where_empty = [ len(combine_candidate_matches(m)) == 0 for m in matches]
+        if any(where_empty):
+            _LOGGER.info(f"Filtering out a conjunction of {len(goals)} goals since one of them has empty matches.")
+            pprint.pprint([[rs.kprint.kore_to_pretty(eclp_to_list(rs, g.antecedent)) ] for g,b in zip(goals,where_empty) if b])
+            continue
+        yield GoalConjunction(goals=goals, can_make_steps=gc.can_make_steps)
     return
 
 # We have a bunch of conjunctions of goals, and we want to prove at least one conjunction of those.
@@ -586,6 +609,7 @@ class Verifier:
             instantiated_cutpoints=dict(),
             flushed_cutpoints=dict(),
             user_cutpoint_blacklist=[],
+            candidate_matches=[[(CandidateType.CandidateCircularity, "default")]],
             #stuck=[False for _ in range(arity)],
             #max_depth = [self.settings.max_depth for _ in range(arity)],
             #component_matches_something=[False for _ in range(arity)],
@@ -670,6 +694,7 @@ class Verifier:
             # Each of the elements of 'combined' is a way of making 'goal' hold.
             combined : Iterable[PreGoalConjunction] = self.exploration_strategy.combine(self.rs, cuts_in_j.copy())
             combined_filtered : Iterable[PreGoalConjunction] = filter_out_pregoals_with_no_progress(combined)
+            combined_filtered_2 : Iterable[PreGoalConjunction] = combined_filtered #filter_out_pregoals_with_empty_candidate_matches_list(combined_filtered)
             # Each of the elements of 'new_gcjs' is a way of making 'goal' hold.
             new_gcjs : Iterable[GoalConjunction] = list(map( # TODO remove the list
                 lambda pgc: (
@@ -682,7 +707,7 @@ class Verifier:
                     )
                 ),
                 #combined_filtered
-                list(combined_filtered)
+                list(combined_filtered_2)
             ))
             # Ok, so at least one of the new goals have to hold for the old goal to be verified.
             # But: the task was to prove all the goals from the conjunction
@@ -709,7 +734,8 @@ class Verifier:
             ),
             disj_of_conj_4
         ))
-        self.goal_conj_chooser_strategy.insert_conjunctions(disj_of_conj_flattened)
+        disj_of_conj_flattened_2 : Iterable[GoalConjunction] = filter_out_goals_with_empty_candidate_matches(self.rs, disj_of_conj_flattened)
+        self.goal_conj_chooser_strategy.insert_conjunctions(disj_of_conj_flattened_2)
         return False
 
     def pregoal_to_goal(self, goal: VerifyGoal, pregoal: PreGoal) -> VerifyGoal:
@@ -748,6 +774,7 @@ class Verifier:
             user_cutpoint_blacklist=user_cutpoint_blacklist,
             #stuck=stuck,
             total_steps=pregoal.absolute_depths,
+            candidate_matches=pregoal.candidate_matches.copy(),
             #component_matches_something=component_matches_something,
         )
 
@@ -870,6 +897,7 @@ class Verifier:
                 instantiated_cutpoints=ic,
                 flushed_cutpoints=goal.flushed_cutpoints,
                 user_cutpoint_blacklist=ucp,
+                candidate_matches=[[(CandidateType.CandidateCircularity, antecedentCname)]],
                 #stuck=goal.stuck.copy(),
                 total_steps=goal.total_steps.copy(),
                 # FIXME Well, it matches the current usable cutpoint, right? And other usable cutpoints.
@@ -1003,7 +1031,7 @@ class Verifier:
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
 
-        matches00 : bool = self.approx_implies_something(
+        matches00 : List[Candidate] = self.approx_implies_something(
             pattern_j=phi,
             j=j,
             flushed_cutpoints=self.new_flushed_cutpoints(
@@ -1013,10 +1041,12 @@ class Verifier:
             ),
             user_cutpoint_blacklist=user_cutpoint_blacklist
         )
-        if matches00 or (depth >= self.settings.max_depth):
+        if len(matches00) >= 1 or (depth >= self.settings.max_depth):
+            if len(matches00) < 1 and (depth >= self.settings.max_depth):
+                _LOGGER.warning("Emiting a cut which does not match.")
              # This is the initial cut
             yield ExeCut(ces=[
-                CutElement(phi=phi, matches=matches00,depth=depth,stuck=False,progress_from_initial=progress_from_initial)
+                CutElement(phi=phi, matches=matches00.copy(),depth=depth,stuck=False,progress_from_initial=progress_from_initial)
             ])
         
         while depth < self.settings.max_depth:
@@ -1046,7 +1076,7 @@ class Verifier:
             if step_result.reason == StopReason.DEPTH_BOUND:
                 _LOGGER.info(f"Progress in depth {depth}")
                 p : Pattern = step_result.state.kore
-                matches1 : bool = self.approx_implies_something(
+                matches1 : List[Candidate] = self.approx_implies_something(
                     pattern_j=p,
                     j=j,
                     flushed_cutpoints=self.new_flushed_cutpoints(
@@ -1060,10 +1090,10 @@ class Verifier:
                     phi=p,
                     depth=depth+1,
                     stuck=False,
-                    matches=matches1,
+                    matches=matches1.copy(),
                     progress_from_initial=True
                 )
-                if matches1:
+                if len(matches1) >= 1:
                     _LOGGER.info(f"The configuration matches something; yielding.")
                     yield ExeCut(ces=[new_ce])
                 phi = p
@@ -1074,19 +1104,23 @@ class Verifier:
                 
             if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
                 _LOGGER.info(f"Stuck (or terminal rule) in depth {depth}")
-                return # An optimization
+                #return # An optimization
                 break
             _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
             raise RuntimeError()
+
+        #if len(matches00) < 1:
+        #    _LOGGER.warning("Emiting a cut which does not match (point 2)")
 
         new_ce0 : CutElement = CutElement(
             phi=phi,
             depth=depth,
             stuck=True,
-            matches=matches00,
+            matches=matches00.copy(),
             progress_from_initial=progress_from_initial
         )
-        yield ExeCut(ces=[new_ce])
+        if len(matches00) >= 1:
+            yield ExeCut(ces=[new_ce])
         return
 
 
