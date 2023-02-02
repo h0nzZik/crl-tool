@@ -29,7 +29,7 @@ class LP:
         return {'patterns': list(map(lambda p: p.dict, self.patterns))}
     
     def copy(self):
-        return LP(self.patterns.copy())
+        return LP([p for p in self.patterns])
 
 
 @final
@@ -64,7 +64,7 @@ class ECLP:
         return {'vars': list(map(lambda v: v.dict, self.vars)), 'clp': self.clp.dict}
     
     def copy(self):
-        return ECLP(self.vars.copy(), self.clp.copy())
+        return ECLP([e.copy() for e in self.vars], self.clp.copy())
     
     def with_no_vars(self):
         return ECLP([], self.clp.copy())

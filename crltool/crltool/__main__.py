@@ -380,7 +380,7 @@ def prove(rs: ReachabilitySystem, args) -> int:
         result : VerifyResult = verifier.verify()
         print(f'proved: {result.proved}')
         pprint.pprint(verifier.ps.dict)
-        pprint.pprint(verifier.sscache)
+        #pprint.pprint(verifier.sscache)
 
     return 0
 

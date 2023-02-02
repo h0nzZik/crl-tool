@@ -485,18 +485,23 @@ def clp_to_list(rs : ReachabilitySystem, clp : CLP) -> Pattern:
     constrained = And(SortApp('SortList', ()), resulting_list, Floor(rs.top_sort, SortApp('SortList', ()), clp.constraint))
     return constrained
 
+def eclp_to_list(rs: ReachabilitySystem, eclp: ECLP) -> Pattern:
+    l : Pattern = clp_to_list(rs, eclp.clp)
+    ex_l : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), eclp.vars, l)
+    return ex_l
 
 def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, consequent: ECLP) -> EclpImpliesResult:
     antecedent_list : Pattern = clp_to_list(rs, antecedent.clp)
-    consequent_list : Pattern = clp_to_list(rs, consequent.clp)
-    ex_consequent_list : Pattern = reduce(lambda p, var: Exists(SortApp('SortList', ()), var, p), consequent.vars, consequent_list)
+    ex_consequent_list : Pattern = eclp_to_list(rs, consequent)
     #print(f'from {rs.kprint.kore_to_pretty(antecedent_list)}')
     #print(f'to {rs.kprint.kore_to_pretty(ex_consequent_list)}')
 
     try:
         result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
     except:
-        _LOGGER.error(f"Implication failed: {antecedent_list} -> {ex_consequent_list}")
+        _LOGGER.error(f"Implication failed: Antecedent -> Consequent")
+        _LOGGER.error(f"Antecedent: {rs.kprint.kore_to_pretty(antecedent_list)}")
+        _LOGGER.error(f"Consequent: {rs.kprint.kore_to_pretty(ex_consequent_list)}")
         raise
     return EclpImpliesResult(result.satisfiable, result.substitution)
 
@@ -749,7 +754,6 @@ class PreGoalConjunction:
 # Combines execution tree cuts from different executions
 def combine_exe_cuts(rs: ReachabilitySystem, ecuts: List[ExeCut]) -> List[PreGoal]:
     ecutelements : List[List[CutElement]] = [ec.ces for ec in ecuts]
-
     combined : List[List[CutElement]] = [list(e) for e in product(*ecutelements)]
     pregoals : List[PreGoal] = [
         PreGoal(
@@ -828,7 +832,11 @@ class StackGoalConjunctionChooserStrategy(GoalConjunctionChooserStrategy):
         return None
     
     def insert_conjunctions(self, gcs: Iterable[GoalConjunction]) -> None:
-        self._stack.extend(gcs)
+        # Evaluate it so that we can debug print it
+        l = [GoalConjunction(goals=list(gc.goals), can_make_steps=gc.can_make_steps)  for gc in gcs]
+        # We can do len(list(...)) only because it actually is a list, see the line above
+        _LOGGER.info(f"Inserting goal conjunctions: {[(len(list(x.goals)), x.can_make_steps) for x in l]}")
+        self._stack.extend(l)
         return
 
 @dataclass
@@ -968,6 +976,7 @@ class Verifier:
                     instantiated_cutpoints=goal.instantiated_cutpoints,
                     flushed_cutpoints=goal.flushed_cutpoints,
                     user_cutpoint_blacklist=goal.user_cutpoint_blacklist,
+                    progress_from_initial=False,
                 )
                 for j in range(0, self.arity)
             ]
@@ -998,9 +1007,15 @@ class Verifier:
         disj_of_conj : Iterable[Tuple[GoalConjunction,...]] = product(*new_goals_pre_conj)
         disj_of_conj_2 : Iterable[List[GoalConjunction]] = map(lambda t: list(t), disj_of_conj)
         disj_of_conj_3 : Iterable[List[Iterable[VerifyGoal]]] = map(lambda l: list(map(lambda g: g.goals, l)), disj_of_conj_2)
-        disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(lambda l: len(l) > 0, disj_of_conj_3)
+        def filter_out_empty(l : List[Iterable[VerifyGoal]]) -> bool:
+            if len(l) == 0:
+                print("Filtering out an empty List[Iterable[VerifyGoal]]")
+                return False
+            return True
+        disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(filter_out_empty, disj_of_conj_3)
+        #disj_of_conj_4 : Iterable[List[Iterable[VerifyGoal]]] = filter(lambda l: len(l) > 0, disj_of_conj_3)
         # Now we just flatten the list of conjunctions.
-        disj_of_conj_flattened : Iterable[GoalConjunction] = (map( #TODO remove the list
+        disj_of_conj_flattened : Iterable[GoalConjunction] = (map(
             lambda lgc: GoalConjunction(
                 goals = chain(*lgc),
                 can_make_steps = True,
@@ -1059,10 +1074,13 @@ class Verifier:
         return r
 
  
+    def eclp_to_pretty(self, eclp: ECLP) -> str:
+        return self.rs.kprint.kore_to_pretty(eclp_to_list(self.rs, eclp))
 
     def advance_proof_general(self, goal: VerifyGoal) -> APGResult:
         _LOGGER.info(f"APG goal {goal.goal_id}")
         _LOGGER.info(f"Flushed cutpoints {len(goal.flushed_cutpoints)}")
+        #print(self.eclp_to_pretty(goal.antecedent))
 
         # FIXME According to the proof system, we can do this only if we do not have any unflushed circularity
         implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
@@ -1112,10 +1130,23 @@ class Verifier:
             # We filter [user_cutpoints] to prevent infinite loops
             antecedentCname : str = usable_cutpoints[0][0]
             antecedentC = self.user_cutpoints[antecedentCname]
-            antecedentCrenamed = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp))), antecedentC)
+            consequent_vars = free_evars_of_clp(self.consequent.clp)
+            # We want to generalize on all variables of the candidate circularity.
+            # TODO: What if some variables `v:s` of the candidate circularity is present in the consequent?
+            #vars_to_generalize = [ev for ev in free_evars_of_clp(antecedentC.clp) if ev not in consequent_vars]
+            vars_to_generalize = [ev for ev in free_evars_of_clp(antecedentC.clp)]
+            antecedentCrenamed = rename_and_generalize_vars_eclp_to_fresh(
+                vars_to_avoid=list(
+                    free_evars_of_clp(antecedentC.clp).union(free_evars_of_clp(goal.antecedent.clp)).union(consequent_vars)
+                ),
+                vars_to_rename=vars_to_generalize,
+                eclp=antecedentC,
+            )
             ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
             ic = goal.instantiated_cutpoints.copy()
             ic[antecedentCname] = antecedentCrenamed
+            #_LOGGER.debug(f'New goal: {self.eclp_to_pretty(antecedentC.with_no_vars())}')
+            #_LOGGER.debug(f'Added circularity: {self.eclp_to_pretty(antecedentCrenamed)}')
             ng = VerifyGoal(
                 goal_id=new_goal_id,
                 antecedent=antecedentC.with_no_vars(),
@@ -1155,6 +1186,7 @@ class Verifier:
             #_LOGGER.debug(f"Checking implication to {self.rs.kprint.kore_to_pretty(phi)}")
             try:
                 if self.implies_small(pattern_j, phi):
+                    _LOGGER.debug(f"Implies {self.rs.kprint.kore_to_pretty(phi)}")
                     return True
             except:
                 _LOGGER.error("Implies exception. LHS, RHS follows.")
@@ -1207,6 +1239,19 @@ class Verifier:
         else:
             return instantiated_cutpoints
 
+    def conjunct_exe_cuts(self, ecuts: List[ExeCut]) -> ExeCut:
+        ces: List[CutElement] = []
+        for ecut in ecuts:
+            ces = ces + ecut.ces
+        _LOGGER.debug(f"Combining a list of cuts of length {len(ecuts)} into a cut of length {len(ces)}")
+        return ExeCut(ces=ces)
+
+    def combine_exe_cuts_0(self, ecuts: List[Iterable[ExeCut]]) -> Iterable[ExeCut]:
+        _LOGGER.debug(f"Combining a List[Iterable[ExeCut]] from various branches, of length {len(ecuts)}")
+        prod : Iterable[Tuple[ExeCut,...]] = product(*ecuts)
+        return map(lambda p: self.conjunct_exe_cuts(list(p)), prod)
+        #return list(map(lambda p: self.conjunct_exe_cuts(list(p)), prod))
+
     def advance_to_limit(
         self,
         phi: Pattern,
@@ -1215,104 +1260,94 @@ class Verifier:
         instantiated_cutpoints : Dict[str, ECLP],
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
+        progress_from_initial : bool,
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
-        # This is the initial cut
-        initial_cut : ExeCut = ExeCut(ces=[
-            CutElement(phi=phi, matches=False,depth=depth,stuck=False,progress_from_initial=False)
-        ])
-        yield initial_cut
-        elements_to_explore_next : ExeCut = ExeCut(ces=initial_cut.ces.copy())
-        while len(elements_to_explore_next.ces) > 0:
-            elements_to_explore_now : List[CutElement] = elements_to_explore_next.ces.copy()
-            elements_to_explore_next.ces = []
-            curr_cut = ExeCut(ces=[])
-            while len(elements_to_explore_now) > 0:
-                ce : CutElement = elements_to_explore_now.pop()
-                #assert(not ce.matches)
-                assert(not ce.stuck)
-                _LOGGER.info(f"Exploring element in depth {ce.depth}")
-                #_LOGGER.info(self.rs.kprint.kore_to_pretty(ce.phi))
 
-                if ce.depth >= self.settings.max_depth:
-                    _LOGGER.info(f"Maximal depth reached")
-                    #curr_cut.ces.append(ce)
-                    # We are NOT adding ce into `elements_to_explore_next`
-                    continue
-
-                step_result : ExecuteResult = self.symbolic_step(ce.phi)
-                if step_result.reason == StopReason.BRANCHING:
-                    assert(step_result.next_states is not None)
-                    assert(len(step_result.next_states) > 1)
-                    bs = list(map(lambda s: s.kore, step_result.next_states))
-                    _LOGGER.info(f"Branching in depth {ce.depth} with {len(bs)} successors")
-                    for b in bs:
-                        matches : bool = self.approx_implies_something(
-                            pattern_j=b,
-                            j=j,
-                            flushed_cutpoints=self.new_flushed_cutpoints(
-                                instantiated_cutpoints=instantiated_cutpoints,
-                                flushed_cutpoints=flushed_cutpoints,
-                                progress=ce.progress_from_initial, # TODO or True?
-                            ),
-                            user_cutpoint_blacklist=user_cutpoint_blacklist
-                        )
-                        new_ce1 : CutElement = CutElement(
-                            phi=b,
-                            depth=ce.depth+1,
-                            stuck=False,
-                            matches=matches,
-                            progress_from_initial=ce.progress_from_initial # TODO: or True?
-                        )
-
-                        if matches:
-                            _LOGGER.info(f"The configuration matches something; adding to current cut.")
-                            curr_cut.ces.append(new_ce1)
-                        else:
-                            elements_to_explore_next.ces.append(new_ce1)
-                    continue
-                if step_result.reason == StopReason.DEPTH_BOUND:
-                    _LOGGER.info(f"Progress in depth {ce.depth}")
-                    p : Pattern = step_result.state.kore
-                    matches1 : bool = self.approx_implies_something(
-                        pattern_j=p,
+        matches00 : bool = self.approx_implies_something(
+            pattern_j=phi,
+            j=j,
+            flushed_cutpoints=self.new_flushed_cutpoints(
+                instantiated_cutpoints=instantiated_cutpoints,
+                flushed_cutpoints=flushed_cutpoints,
+                progress=progress_from_initial,
+            ),
+            user_cutpoint_blacklist=user_cutpoint_blacklist
+        )
+        if matches00 or (depth >= self.settings.max_depth):
+             # This is the initial cut
+            yield ExeCut(ces=[
+                CutElement(phi=phi, matches=matches00,depth=depth,stuck=False,progress_from_initial=progress_from_initial)
+            ])
+        
+        while depth < self.settings.max_depth:
+            step_result : ExecuteResult = self.symbolic_step(phi)
+            if step_result.reason == StopReason.BRANCHING:
+                assert(step_result.next_states is not None)
+                assert(len(step_result.next_states) > 1)
+                bs = list(map(lambda s: s.kore, step_result.next_states))
+                _LOGGER.info(f"Branching in depth {depth} with {len(bs)} successors")
+                its : List[Iterable[ExeCut]] = []
+                for b in bs:
+                    its.append(self.advance_to_limit(
+                        phi=b,
+                        depth=depth+1,
                         j=j,
-                        flushed_cutpoints=self.new_flushed_cutpoints(
-                            instantiated_cutpoints=instantiated_cutpoints,
-                            flushed_cutpoints=flushed_cutpoints,
-                            progress=True
-                        ),
-                        user_cutpoint_blacklist=user_cutpoint_blacklist
-                    )
-                    new_ce : CutElement = CutElement(
-                        phi=p,
-                        depth=ce.depth+1,
-                        stuck=False,
-                        matches=matches1,
-                        progress_from_initial=True
-                    )
-                    if matches1:
-                        _LOGGER.info(f"The configuration matches something; adding to current cut.")
-                        curr_cut.ces.append(new_ce)
-                    else:
-                        elements_to_explore_next.ces.append(new_ce)
-                    continue
-                
-                if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
-                    _LOGGER.info(f"Stuck (or terminal rule) in depth {ce.depth}")
-                    #_LOGGER.debug(self.rs.kprint.kore_to_pretty(ce.phi))
-                    #ce.stuck = True
-                    #final_elements.append(ce)
-                    continue
-                _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
-                raise RuntimeError()
-            assert(len(elements_to_explore_now) == 0)
-            if len(curr_cut.ces) > 0:
-                _LOGGER.info(f"Yielding a cut of size {len(curr_cut.ces)}")
-                yield curr_cut
-                elements_to_explore_next.ces.extend(curr_cut.ces)
+                        instantiated_cutpoints=instantiated_cutpoints,
+                        flushed_cutpoints=flushed_cutpoints,
+                        progress_from_initial=progress_from_initial,
+                        user_cutpoint_blacklist=user_cutpoint_blacklist,
+                    ))
+                yield from self.combine_exe_cuts_0(its)
+                #combined0 = self.combine_exe_cuts_0(its)
+                #for c in combined0:
+                #    yield c
+                return
 
-            continue
+            if step_result.reason == StopReason.DEPTH_BOUND:
+                _LOGGER.info(f"Progress in depth {depth}")
+                p : Pattern = step_result.state.kore
+                matches1 : bool = self.approx_implies_something(
+                    pattern_j=p,
+                    j=j,
+                    flushed_cutpoints=self.new_flushed_cutpoints(
+                        instantiated_cutpoints=instantiated_cutpoints,
+                        flushed_cutpoints=flushed_cutpoints,
+                        progress=True
+                    ),
+                    user_cutpoint_blacklist=user_cutpoint_blacklist
+                )
+                new_ce : CutElement = CutElement(
+                    phi=p,
+                    depth=depth+1,
+                    stuck=False,
+                    matches=matches1,
+                    progress_from_initial=True
+                )
+                if matches1:
+                    _LOGGER.info(f"The configuration matches something; yielding.")
+                    yield ExeCut(ces=[new_ce])
+                phi = p
+                depth = depth + 1
+                matches00 = matches1
+                progress_from_initial = True
+                continue
+                
+            if (step_result.reason == StopReason.STUCK) or (step_result.reason == StopReason.TERMINAL_RULE):
+                _LOGGER.info(f"Stuck (or terminal rule) in depth {depth}")
+                return # An optimization
+                break
+            _LOGGER.error(f"Weird step_result: reason={step_result.reason}")
+            raise RuntimeError()
+
+        new_ce0 : CutElement = CutElement(
+            phi=phi,
+            depth=depth,
+            stuck=True,
+            matches=matches00,
+            progress_from_initial=progress_from_initial
+        )
+        yield ExeCut(ces=[new_ce])
         return
 
 
@@ -1340,11 +1375,17 @@ def get_fresh_evars_with_sorts(avoid: List[EVar], sorts: List[Sort], prefix="Fre
     fresh_evars : List[EVar] = list(map(lambda m: EVar(name=prefix + str(m), sort=sorts[m - n]), nums))
     return fresh_evars
 
-def rename_vars_eclp_to_fresh(vars_to_avoid : List[EVar], eclp: ECLP) -> ECLP:
-    eclp2 = eclp.copy()
-    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, eclp2.vars)))
-    renaming = dict(zip(map(lambda e: e.name, eclp2.vars), map(lambda e: e.name, new_vars)))
-    return rename_vars_eclp(renaming, eclp2)
+def rename_and_generalize_vars_eclp_to_fresh(vars_to_avoid : List[EVar], vars_to_rename : List[EVar], eclp: ECLP) -> ECLP:
+    new_vars = get_fresh_evars_with_sorts(avoid=list(vars_to_avoid), sorts=list(map(lambda ev: ev.sort, vars_to_rename)))
+    fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
+    to : List[str] = list(map(lambda e: e.name, new_vars))
+    renaming = dict(zip(fr, to))
+    #_LOGGER.info(f"fr: {fr}")
+    #_LOGGER.info(f"to: {to}")
+    #_LOGGER.info(f"Renaming: {renaming}")
+    clp = rename_vars_clp(renaming, eclp.clp)
+    return ECLP(vars=new_vars, clp=clp)
+
 
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
@@ -1357,8 +1398,14 @@ def prepare_verifier(settings: VerifySettings, user_cutpoints : Dict[str,ECLP], 
     _LOGGER.debug(f"Going to try to prove the consequent with variables: {consequent.vars}")
     _LOGGER.debug(f"{[rs.kprint.kore_to_pretty(phi) for phi in consequent.clp.lp.patterns]}")
     user_cutpoints_2 = user_cutpoints.copy()
+    consequent_vars = free_evars_of_clp(consequent.clp)
     if settings.goal_as_cutpoint:
-        new_cutpoint = rename_vars_eclp_to_fresh(list(free_evars_of_clp(antecedent.clp)), antecedent)
+        vars_to_generalize = [ev for ev in free_evars_of_clp(antecedent.clp) if ev not in consequent_vars]
+        new_cutpoint = rename_and_generalize_vars_eclp_to_fresh(
+            vars_to_avoid=list(free_evars_of_clp(antecedent.clp).union(consequent_vars)),
+            vars_to_rename=vars_to_generalize, 
+            eclp=antecedent,
+        )
         user_cutpoints_2['default']=new_cutpoint
         
     verifier = Verifier(
