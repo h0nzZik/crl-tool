@@ -84,7 +84,6 @@ from .verify import (
     #UnsolvableGoal,
     VerifyGoal,
     EclpImpliesResult,
-    eclp_impl_valid,
     eclp_impl_valid_trough_lists,
     VerifySettings,
     VerifyResult,
@@ -110,7 +109,6 @@ def create_argument_parser() -> argparse.ArgumentParser:
     
     subparser_check_implication = subparsers.add_parser('check-implication', help='Checks whether the specification holds trivially')
     subparser_check_implication.add_argument('--specification', required=True)
-    subparser_check_implication.add_argument('--iteratively', action='store_true', default=False)
     subparser_check_implication.add_argument('--store-witness-to', type=str, default=None)
 
     subparser_prove = subparsers.add_parser('prove', help='Prove a specification')
@@ -139,10 +137,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
 def check_implication(rs: ReachabilitySystem, args) -> int:
     with open(args['specification'], 'r') as spec_f:
         claim = Claim.from_dict(json.loads(spec_f.read()))
-        if args['iteratively']:
-            result : EclpImpliesResult = eclp_impl_valid(rs, claim.antecedent, claim.consequent)    
-        else:
-            result = eclp_impl_valid_trough_lists(rs, claim.antecedent, claim.consequent)
+        result : EclpImpliesResult = eclp_impl_valid_trough_lists(rs, claim.antecedent, claim.consequent)
         print(result.valid)
         if result.witness is not None:
             pretty_witness = rs.kprint.kore_to_pretty(result.witness)
@@ -231,8 +226,10 @@ def view_dump(rs: ReachabilitySystem, args) -> int:
     return 0
 
 def claim_is_cartesian(claim: KClaim) -> bool:
-    #print(claim.att.atts)
     return ('cartesian' in claim.att.atts)
+
+def claim_is_trusted(claim: KClaim) -> bool:
+    return ('trusted' in claim.att.atts)
 
 def prelude_list_to_metalist(term: KInner) -> List[KInner]:
     match term:
@@ -263,7 +260,7 @@ def add_generated_stuff(phi : Pattern, counter_variable_name : str) -> Pattern:
         ),
     )
 
-def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
+def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim, claim_id: int) -> Claim:
     body = claim.body
     lhs = extract_lhs(body)
     rhs = extract_rhs(body)
@@ -271,34 +268,23 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
     list_rhs = prelude_list_to_metalist(rhs)
     if (len(list_lhs) != len(list_rhs)):
         raise ValueError(f"CRL antecedent and consequent need to have the same arity: {len(list_lhs)} != {len(list_rhs)}")
-    #print(f"lhs: {list_lhs}")
-    #print(f"rhs: {list_rhs}")
-    #list_lhs = [rs.kast_definition.instantiate_cell_vars(x) for x in list_lhs]
-    #list_rhs = [rs.kast_definition.instantiate_cell_vars(x) for x in list_rhs]
-    #print(f"lhsi: {list_lhs}")
-    #print(f"rhsi: {list_rhs}")
     list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs]
     list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs]
     evars = list(chain.from_iterable([free_evars_of_pattern(p) for p in list_rhs_kore]))
     
-    lhs_generated_counters = [f"VARGENERATEDCOUNTER{i}" for i in range(len(list_lhs_kore))]
-    rhs_generated_counters = [f"VARGENERATEDCOUNTERPRIME{i}" for i in range(len(list_rhs_kore))]
+    lhs_generated_counters = [f"VARGENERATED{claim_id}COUNTER{i}" for i in range(len(list_lhs_kore))]
+    rhs_generated_counters = [f"VARGENERATED{claim_id}COUNTERPRIME{i}" for i in range(len(list_rhs_kore))]
     list_lhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_lhs_kore,lhs_generated_counters)]
     list_rhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_rhs_kore,rhs_generated_counters)]
-    #print(f"lhs: {list_lhs_kore}")
-    #print(f"rhs: {list_rhs_kore}")
 
     question_mark_variables = [
-        ev for ev in evars if ev.name.startswith("Var'Ques'")
+        ev for ev in evars if ev.name.startswith("Var'Ques")
     ] + [
         EVar(name=name, sort=SortApp('SortInt', ()))  for name in rhs_generated_counters
     ]
-    #print(f"?vars: {question_mark_variables}")
 
     requires_constraint = rs.kprint.kast_to_kore(bool_to_ml_pred(claim.requires))
     ensures_constraint = rs.kprint.kast_to_kore(bool_to_ml_pred(claim.ensures))
-    #requires_constraint = claim.requires
-    #ensures_constraint = claim.ensures
     return Claim(
         antecedent=ECLP(
             vars=[],
@@ -323,17 +309,27 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim) -> Claim:
 
 def extract_crl_spec_from_flat_module(rs: ReachabilitySystem, mod: KFlatModule) -> Specification:
     claims: Dict[str,Claim] = dict()
+    trusted_claims: Dict[str,Claim] = dict()
     cutpoints: Dict[str,ECLP] = dict()
     rl_circularities : Dict[str,RLCircularity] = dict()
-    for claim in mod.claims:
+    for claim, claim_id in zip(mod.claims, range(len(mod.claims))):
         cart : bool = claim_is_cartesian(claim)
+        trusted : bool = claim_is_trusted(claim)
         sen : KSentence = claim
         if cart:
-            claims[sen.label] = extract_crl_claim(rs, claim)
+            if trusted:
+                trusted_claims[sen.label] = extract_crl_claim(rs, claim, claim_id=claim_id)
+            else:
+                claims[sen.label] = extract_crl_claim(rs, claim, claim_id=claim_id)
         else:
             _LOGGER.warning("Non-cartesian claims are not supported yet")
         # TODO extract cutpoints and circularities...
-    return Specification(claims=claims,cutpoints=cutpoints,rl_circularities=rl_circularities)
+    return Specification(
+        claims=claims,
+        trusted_claims=trusted_claims,
+        cutpoints=cutpoints,
+        rl_circularities=rl_circularities
+    )
 
 def get_spec_from_file(rs: ReachabilitySystem, filename: Path) -> Specification:
     jsspec = get_kprove_generated_json(rs=rs, specification=filename)
@@ -375,7 +371,8 @@ def prove(rs: ReachabilitySystem, args) -> int:
             settings=settings,
             user_cutpoints=spec.cutpoints,
             claim=claim,
-            claim_name=claim_name
+            claim_name=claim_name,
+            trusted_claims=spec.trusted_claims,
         )
         result : VerifyResult = verifier.verify()
         print(f'proved: {result.proved}')
