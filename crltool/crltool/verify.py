@@ -1080,7 +1080,7 @@ class Verifier:
     def advance_proof_general(self, goal: VerifyGoal) -> APGResult:
         _LOGGER.info(f"APG goal {goal.goal_id}")
         _LOGGER.info(f"Flushed cutpoints {len(goal.flushed_cutpoints)}")
-        print(self.eclp_to_pretty(goal.antecedent))
+        #print(self.eclp_to_pretty(goal.antecedent))
 
         # FIXME According to the proof system, we can do this only if we do not have any unflushed circularity
         implies_result = self.check_eclp_impl_valid(goal.antecedent, self.consequent)
@@ -1145,8 +1145,8 @@ class Verifier:
             ucp = goal.user_cutpoint_blacklist + list(map(lambda cp: cp[0], usable_cutpoints))
             ic = goal.instantiated_cutpoints.copy()
             ic[antecedentCname] = antecedentCrenamed
-            _LOGGER.debug(f'New goal: {self.eclp_to_pretty(antecedentC.with_no_vars())}')
-            _LOGGER.debug(f'Added circularity: {self.eclp_to_pretty(antecedentCrenamed)}')
+            #_LOGGER.debug(f'New goal: {self.eclp_to_pretty(antecedentC.with_no_vars())}')
+            #_LOGGER.debug(f'Added circularity: {self.eclp_to_pretty(antecedentCrenamed)}')
             ng = VerifyGoal(
                 goal_id=new_goal_id,
                 antecedent=antecedentC.with_no_vars(),
