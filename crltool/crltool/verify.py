@@ -1110,9 +1110,6 @@ def rename_and_generalize_vars_eclp_to_fresh(vars_to_avoid : List[EVar], vars_to
     fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
     to : List[str] = list(map(lambda e: e.name, new_vars))
     renaming = dict(zip(fr, to))
-    #_LOGGER.info(f"fr: {fr}")
-    #_LOGGER.info(f"to: {to}")
-    #_LOGGER.info(f"Renaming: {renaming}")
     clp = rename_vars_clp(renaming, eclp.clp)
     return ECLP(vars=new_vars, clp=clp)
 
@@ -1123,42 +1120,20 @@ def axiom_from_trusted_claim(rs: ReachabilitySystem, claim: Claim, trusted_claim
     vars_fr : List[str] = list(map(lambda e: e.name, vars_to_rename))
     vars_to : List[str] = list(map(lambda e: e.name, new_vars))
     renaming = dict(zip(vars_fr, vars_to))
-    print(f"Reanimg: {renaming}")
     trusted_claim_consequent_renamed = ECLP(
         vars=[EVar(name=renaming[v.name], sort=v.sort) for v in trusted_claim.consequent.vars],
         clp=rename_vars_clp(renaming, trusted_claim.consequent.clp)
     )
-    trusted_claim_antecedent_renamed = ECLP(
-        vars=[EVar(name=renaming[v.name], sort=v.sort) for v in trusted_claim.antecedent.vars],
-        clp=rename_vars_clp(renaming, trusted_claim.antecedent.clp)
-    )
-    #print(f"Antecedent renamed:{rs.kprint.kore_to_pretty(eclp_to_list(rs, trusted_claim_antecedent_renamed))}")
-    #print(f"Consequent renamed:{rs.kprint.kore_to_pretty(eclp_to_list(rs, trusted_claim_consequent_renamed))}")
+
     # Then I want to check whether the consequent of my axiom implies the consequent of the claim/goal.
     r : EclpImpliesResult = eclp_impl_valid_trough_lists(rs, trusted_claim_consequent_renamed, claim.consequent)
     if (not r.valid) or (r.witness is None):
         return None
 
-    new_ante : ECLP = ECLP(
-        vars=list(free_evars_of_clp(trusted_claim_antecedent_renamed.clp)),
-        clp=trusted_claim_antecedent_renamed.clp
+    return ECLP(
+        vars=list(free_evars_of_clp(trusted_claim.antecedent.clp)),
+        clp=trusted_claim.antecedent.clp,
     )
-    return new_ante
-
-    #equalities = extract_equalities_from_witness(set(new_vars), r.witness)
-    #print(equalities)
-    #
-    ## Then I use the resulting substitution to rename the consequent,
-    ## so that some of the variables match the variables of the goal.
-    #renaming2 = { k.name : v.name for k,v in equalities.items() if isinstance(v, EVar) }
-    #
-    #trusted_claim_antecedent_renamed_again = ECLP(
-    #    vars=[EVar(name=renaming2[v.name], sort=v.sort) for v in trusted_claim_antecedent_renamed.vars],
-    #    clp=rename_vars_clp(renaming2, trusted_claim_antecedent_renamed.clp)
-    #)
-    #print(f"Antecedent renamed again:{rs.kprint.kore_to_pretty(eclp_to_list(rs, trusted_claim_antecedent_renamed_again))}")
-    #
-    #raise NotImplementedError()
 
 # Phi - CLP (constrained list pattern)
 # Psi - ECLP (existentially-quantified CLP)
