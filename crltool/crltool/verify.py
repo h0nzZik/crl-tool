@@ -250,8 +250,7 @@ CandidateType = Enum('CandidateType', [
     'Axiom',
     'CandidateCircularity',
     'FlushedCircularity',
-    'Stuck',
-    'Branching'])
+    ])
 Candidate = Tuple[CandidateType, str]
 
 @final
@@ -260,7 +259,6 @@ class VerifySettings:
     check_eclp_impl_valid : Callable[[ReachabilitySystem, ECLP, ECLP], EclpImpliesResult]
     goal_as_cutpoint : bool
     max_depth : int
-    cut_on_branch : bool
     filter_candidate_matches : bool
 
 @dataclass
@@ -1063,7 +1061,6 @@ class Verifier:
         flushed_cutpoints : Dict[str, ECLP],
         user_cutpoint_blacklist : List[str],
         progress_from_initial : bool,
-        branching : bool = False,
     ) -> Iterable[ExeCut]:
         _LOGGER.info(f"advance_to_limit a pattern in depth {depth}, in direction {j}")
 
@@ -1077,8 +1074,6 @@ class Verifier:
             ),
             user_cutpoint_blacklist=user_cutpoint_blacklist
         )
-        if branching and self.settings.cut_on_branch:
-            matches00.append((CandidateType.Branching, ""))
 
         if len(matches00) >= 1 or (depth >= self.settings.max_depth):
             if len(matches00) < 1 and (depth >= self.settings.max_depth):
@@ -1105,7 +1100,6 @@ class Verifier:
                         flushed_cutpoints=flushed_cutpoints,
                         progress_from_initial=progress_from_initial,
                         user_cutpoint_blacklist=user_cutpoint_blacklist,
-                        branching=True,
                     ))
                 yield from self.combine_exe_cuts_0(its)
                 #combined0 = self.combine_exe_cuts_0(its)
@@ -1156,7 +1150,7 @@ class Verifier:
             phi=phi,
             depth=depth,
             stuck=True,
-            matches=matches00.copy(), #[(CandidateType.Stuck, "")],
+            matches=matches00.copy(),
             progress_from_initial=progress_from_initial
         )
         if len(matches00) >= 1:
