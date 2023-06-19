@@ -17,7 +17,7 @@ def get_kprove_generated_json(rs: ReachabilitySystem, specification: Path) -> Di
     with NamedTemporaryFile() as f:
         command = [
             KPROVE_COMMAND,
-            '--dry-run',
+            '--dont-prove',
             '--definition',
             str(rs.definition_dir),
             '--emit-json-spec',
