@@ -8,7 +8,7 @@ from typing import (
 )
 
 
-from pyk.cli_utils import run_process
+from pyk.utils import run_process
 
 from .kcommands import KPROVE_COMMAND
 from .ReachabilitySystem import ReachabilitySystem

@@ -26,7 +26,7 @@ from pyk.kore.parser import (
     KoreParser
 )
 
-from pyk.kore.lexer import KoreLexer, KoreToken
+#from pyk.kore.lexer import KoreLexer, KoreToken
 
 from pyk.kore.syntax import (
     Definition,
@@ -94,9 +94,9 @@ class ReachabilitySystem:
         try:
             self.definition = kparser.definition()
         except:
-            # Print the rest of the definition - just for debugging purposes
-            while(kparser._la().type != KoreToken.Type.EOF):
-                print(kparser._la.consume().text, end='')
+        #    # Print the rest of the definition - just for debugging purposes
+        #    while(kparser._la().type != KoreToken.Type.EOF):
+        #        print(kparser._la.consume().text, end='')
             raise
         self.kprint = KPrint(definition_dir)
         self.kcs = KoreClientServer(

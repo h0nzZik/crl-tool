@@ -181,7 +181,7 @@ def check_implication_directly(rs: ReachabilitySystem, args) -> int:
 def simplify(rs: ReachabilitySystem, args) -> int:
     with open(args['pattern'], 'r') as fr:
         pat = KoreParser(fr.read()).pattern()
-        patsimpl0 : Pattern = rs.kcs.client.simplify(pat)
+        patsimpl0 : Pattern = rs.kcs.client.simplify(pat)[0]
         print(patsimpl0.text)
         with open(args['output_file'], 'w') as fw:
             fw.write(patsimpl0.text)
