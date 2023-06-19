@@ -28,3 +28,9 @@ test-imp: ${IMP_TIMESTAMP}
 .PHONY: test-simplify
 test-simplify: ${IMP_TIMESTAMP}
 	crl-tool --definition ${IMP_KOMPILED_DIR}/imp-kompiled simplify --pattern one_plus_two.kore
+
+
+.PHONY: clean
+clean:
+	rm -rf ${TEMP_DIR}
+
