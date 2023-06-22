@@ -31,6 +31,7 @@ from pyk.kast.outer import (
 )
 
 from pyk.kast.manip import (
+    extract_cells,
     extract_lhs,
     extract_rhs,
     rename_generated_vars,
@@ -181,7 +182,7 @@ def check_implication_directly(rs: ReachabilitySystem, args) -> int:
 def simplify(rs: ReachabilitySystem, args) -> int:
     with open(args['pattern'], 'r') as fr:
         pat = KoreParser(fr.read()).pattern()
-        patsimpl0 : Pattern = rs.kcs.client.simplify(pat)
+        patsimpl0 : Pattern = rs.kcs.client.simplify(pat)[0]
         print(patsimpl0.text)
         with open(args['output_file'], 'w') as fw:
             fw.write(patsimpl0.text)
@@ -213,6 +214,7 @@ def print_vquestion(rs: ReachabilitySystem, q: VerifyQuestion):
         continue
     return
 
+# TODO I think this should be removed.
 def view_dump(rs: ReachabilitySystem, args) -> int:
     with open(args['from'], 'r') as fr:
         the_dump = json.load(fr)
@@ -243,12 +245,12 @@ def prelude_list_to_metalist(term: KInner) -> List[KInner]:
         case _:
             raise ValueError(f"Not a list: {term}")
 
-def add_generated_stuff(phi : Pattern, counter_variable_name : str) -> Pattern:
+def add_generated_stuff(phis : Tuple[Pattern, ...], counter_variable_name : str) -> Pattern:
     return App(
         symbol="Lbl'-LT-'generatedTop'-GT-'",
         sorts=(),
-        args=(
-            phi,
+        args=tuple(
+            list(phis) + [
             App(
                 symbol="Lbl'-LT-'generatedCounter'-GT-'",
                 sorts=(),
@@ -259,25 +261,38 @@ def add_generated_stuff(phi : Pattern, counter_variable_name : str) -> Pattern:
                     ),
                 )
             )
+            ]
         ),
     )
 
+def strip_inj(phi: Pattern) -> Tuple[Pattern,...]:
+    match phi:
+        case App('inj', _, subs):
+            return subs
+        case _:
+            raise ValueError(f"Not an inj pattern: {phi.text}")
+
 def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim, claim_id: int) -> Claim:
     body = claim.body
+    print(f'before:{body}')
     lhs = extract_lhs(body)
     rhs = extract_rhs(body)
+
     list_lhs = prelude_list_to_metalist(lhs)
     list_rhs = prelude_list_to_metalist(rhs)
     if (len(list_lhs) != len(list_rhs)):
         raise ValueError(f"CRL antecedent and consequent need to have the same arity: {len(list_lhs)} != {len(list_rhs)}")
+    print(f"list_lhs={list_lhs}")
     list_lhs_kore = [rs.kprint.kast_to_kore(x) for x in list_lhs]
     list_rhs_kore = [rs.kprint.kast_to_kore(x) for x in list_rhs]
     evars = list(chain.from_iterable([free_evars_of_pattern(p) for p in list_rhs_kore]))
+    list_lhs_kore2 = [strip_inj(p) for p in list_lhs_kore]
+    list_rhs_kore2 = [strip_inj(p) for p in list_rhs_kore]
     
     lhs_generated_counters = [f"VARGENERATED{claim_id}COUNTER{i}" for i in range(len(list_lhs_kore))]
     rhs_generated_counters = [f"VARGENERATED{claim_id}COUNTERPRIME{i}" for i in range(len(list_rhs_kore))]
-    list_lhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_lhs_kore,lhs_generated_counters)]
-    list_rhs_kore_top = [add_generated_stuff(phi, name) for phi,name in zip(list_rhs_kore,rhs_generated_counters)]
+    list_lhs_kore_top = [add_generated_stuff(phis, name) for phis,name in zip(list_lhs_kore2,lhs_generated_counters)]
+    list_rhs_kore_top = [add_generated_stuff(phis, name) for phis,name in zip(list_rhs_kore2,rhs_generated_counters)]
 
     question_mark_variables = [
         ev for ev in evars if ev.name.startswith("Var'Ques")
@@ -285,8 +300,8 @@ def extract_crl_claim(rs: ReachabilitySystem, claim: KClaim, claim_id: int) -> C
         EVar(name=name, sort=SortApp('SortInt', ()))  for name in rhs_generated_counters
     ]
 
-    requires_constraint = rs.kprint.kast_to_kore(bool_to_ml_pred(claim.requires))
-    ensures_constraint = rs.kprint.kast_to_kore(bool_to_ml_pred(claim.ensures))
+    requires_constraint = strip_inj(rs.kprint.kast_to_kore(bool_to_ml_pred(claim.requires)))[0]
+    ensures_constraint = strip_inj(rs.kprint.kast_to_kore(bool_to_ml_pred(claim.ensures)))[0]
     return Claim(
         antecedent=ECLP(
             vars=[],
@@ -408,6 +423,7 @@ def main_main() -> None:
     logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
     logging.getLogger('pyk.kore.rpc').disabled = True
     logging.getLogger('pyk.ktool.kprint').disabled = True
+    logging.getLogger('pyk.konvert').disabled = True
     logging.getLogger('pyk.kast.inner').disabled = True # TODO check those debugging messages
     if (args['connect_to_port'] is not None) and (args['kore_rpc_args'] is not None):
         print("'--connect-to-port' and '--kore-rpc-args' are mutually exclusive")

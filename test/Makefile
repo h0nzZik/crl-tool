@@ -14,7 +14,7 @@ IMP_TIMESTAMP := ${IMP_KOMPILED_DIR}/imp-kompiled/timestamp
 build-imp: ${IMP_TIMESTAMP}
 
 ${IMP_TIMESTAMP}: lang/imp/imp.k
-	kompile --emit-json --no-prelude --backend haskell --directory ${IMP_KOMPILED_DIR} $<
+	kompile --emit-json --backend haskell --directory ${IMP_KOMPILED_DIR} $<
 
 .PHONY: imp-run-count
 imp-run-count: lang/imp/count.imp ${IMP_TIMESTAMP}

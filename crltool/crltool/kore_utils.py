@@ -4,7 +4,7 @@ from typing import (
 )
 
 from pyk.kore.syntax import (
-    Attr,
+    App,
     Definition,
     Import,
     Module,
@@ -57,8 +57,8 @@ def get_symbol_sort(definition: Definition, main_module_name: str, symbol_name: 
 def get_top_cell_initializer(definition: Definition) -> str:
     for a in definition.attrs:
         if a.symbol == "topCellInitializer":
-            match a.params[0]:
-                case Attr(sym, _, _):
+            match a.args[0]:
+                case App(sym, _, _):
                     return sym
     raise DefinitionError("topCellInitializer not found")
     

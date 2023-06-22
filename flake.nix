@@ -1,30 +1,34 @@
 {
   description = "An implementation of Cartesian Reachability Logic via K";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    pyk.url = "github:runtimeverification/pyk/v0.1.105";
-    #pyk.url = "/home/jan/projects/rv/pyk";
+    # We cannot work with nixpkgs-unstable because of this change: https://github.com/NixOS/nixpkgs/pull/238764.
+    # That change needs to be reflected in Mavenix. Until then, we stay at `nixos-23.05`.
+    #nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.05";
+    
+    pyk.url = "github:runtimeverification/pyk/v0.1.337";
+    pyk.inputs.nixpkgs.follows = "nixpkgs";
+    
     #k-framework.url = "github:runtimeverification/k";
-    k-framework.url = "github:h0nzZik/k/dont-prove";
+    k-framework.url = "github:h0nzZik/k/cartesian-rl";
+    k-framework.inputs.nixpkgs.follows = "nixpkgs";
+
     k-haskell-backend.follows = "k-framework/haskell-backend";
   };
 
-  outputs = { self, nixpkgs, pyk, k-framework, k-haskell-backend }:
+  outputs = { self, nixpkgs, pyk, k-framework, k-haskell-backend, ... }:
     let
-      supportedSystems = [ "x86_64-linux" "x86_64-darwin" "aarch64-linux" "aarch64-darwin" ];
-      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      pkgs = forAllSystems (system: nixpkgs.legacyPackages.${system});
+      forAllSystems = f: nixpkgs.lib.genAttrs nixpkgs.lib.systems.flakeExposed (system: f system);
+      pkgs = forAllSystems (system:  nixpkgs.legacyPackages.${system});
     in
     {
       packages = forAllSystems (system:
       let
-        python = pkgs.${system}.python310;
+        python = pkgs.${system}.python311;
         stdenv = pkgs.${system}.stdenv;
-        pythonPackages = pkgs.${system}.python310Packages;
         k = k-framework.packages.${system}.k;
-        kore-rpc = k-haskell-backend.projectGhc9.${system}.hsPkgs.kore.components.exes.kore-rpc;
-        python-pyk = pyk.packages.${system}.pyk-python310 ;
-      in {
+        python-pyk = pyk.packages.${system}.pyk-python311 ;
+
         crl-tool = python.pkgs.buildPythonApplication {
             name = "crl-tool";
             src = ./crltool;
@@ -32,7 +36,6 @@
             propagatedBuildInputs = [
               python-pyk
               python.pkgs.setuptools
-              python.pkgs.pygtrie
             ];
             postInstall = ''
               substituteInPlace $out/lib/*/site-packages/crltool/kcommands.py \
@@ -40,7 +43,7 @@
               substituteInPlace $out/lib/*/site-packages/crltool/kcommands.py \
                 --replace "\"kprove\"" "\"${k}/bin/kprove\""
               substituteInPlace $out/lib/*/site-packages/crltool/kcommands.py \
-                --replace "\"kore-rpc\"" "\"${kore-rpc}/bin/kore-rpc\""
+                --replace "\"kore-rpc\"" "\"${k}/bin/kore-rpc\""
             '';
         };
 
@@ -48,9 +51,8 @@
           name = "crl-tool-test" ;
           src = ./test ;
           propagatedBuildInputs = [
-            self.outputs.packages.${system}.crl-tool
+            crl-tool
             k
-            kore-rpc
             python-pyk
           ] ;
 
@@ -58,7 +60,12 @@
           installPhase = "echo 'Empty install phase'";
         };
 
-        default = self.outputs.packages.${system}.crl-tool ;
+        default = crl-tool ;
+
+      in {
+        inherit crl-tool;
+        inherit test;
+        inherit default;
       });
     };
 }

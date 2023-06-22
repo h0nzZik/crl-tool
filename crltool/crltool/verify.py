@@ -181,8 +181,10 @@ def eclp_impl_valid_trough_lists(rs: ReachabilitySystem, antecedent : ECLP, cons
         result : ImpliesResult = rs.kcs.client.implies(antecedent_list, ex_consequent_list)
     except:
         _LOGGER.error(f"Implication failed: Antecedent -> Consequent")
-        _LOGGER.error(f"Antecedent: {rs.kprint.kore_to_pretty(antecedent_list)}")
-        _LOGGER.error(f"Consequent: {rs.kprint.kore_to_pretty(ex_consequent_list)}")
+        _LOGGER.error(f"Antecedent: {antecedent_list.text}")
+        _LOGGER.error(f"Antecedent (pretty): {rs.kprint.kore_to_pretty(antecedent_list)}")
+        _LOGGER.error(f"Consequent: {ex_consequent_list.text}")
+        _LOGGER.error(f"Consequent (pretty): {rs.kprint.kore_to_pretty(ex_consequent_list)}")
         raise
     return EclpImpliesResult(result.satisfiable, result.substitution)
 
