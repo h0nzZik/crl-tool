@@ -17,7 +17,10 @@ def get_kprove_generated_json(rs: ReachabilitySystem, specification: Path) -> Di
     with NamedTemporaryFile() as f:
         command = [
             KPROVE_COMMAND,
+            '--dry-run',
             '--dont-prove',
+            '--verbose',
+            '--debug',
             '--definition',
             str(rs.definition_dir),
             '--emit-json-spec',
@@ -27,5 +30,5 @@ def get_kprove_generated_json(rs: ReachabilitySystem, specification: Path) -> Di
         ]
         rv = run_process(command)
         if rv.returncode != 0:
-            raise RuntimeError(f"krove returned a nonzero value: {rv.returncode}")
+            raise RuntimeError(f"kprove returned a nonzero value: {rv.returncode}")
         return json.loads(f.read())

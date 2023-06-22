@@ -3,8 +3,6 @@
 // Also, we added `halt()`
 // Copyright (c) 2014-2019 K Team. All Rights Reserved.
 
-requires "my-prelude.md"
-
 module IMP-SYNTAX
   imports DOMAINS-SYNTAX
   syntax AExp  ::= Int | Id
